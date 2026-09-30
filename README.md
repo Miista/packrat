@@ -41,9 +41,13 @@ each with a comment explaining the discrepancy:
   strings.
 - The title field is `title`, not `name` as MAM's own worked example
   showed.
-- When `dlLink=true` is requested, the `dl` field already includes its own
-  `?tid=...` suffix — appending another one (as MAM's prose docs describe)
-  produces a broken doubled-up URL. Do not re-append `tid`.
+- Downloads use MAM's documented `/tor/download.php?tid={id}` endpoint
+  directly, rather than the search response's `dl` hash field. Both work
+  (confirmed the `dl` hash also downloads successfully, and already
+  embeds its own `?tid=...`), but `tid`-based download.php is MAM's
+  stable documented contract — including an optional `fl` flag to spend a
+  freeleech wedge on the torrent, which this app never sets (MAM's docs
+  warn "no refunds available" for automated use of that flag).
 - The search API has **no server-side min/max seeders/leechers/size
   parameters** — MAM's docs only support text/category/searchType/sort
   filtering server-side. Those four filters are applied **client-side**,

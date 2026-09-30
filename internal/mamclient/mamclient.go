@@ -157,7 +157,6 @@ type searchResponseItem struct {
 	Leechers json.Number `json:"leechers"`
 	Free     json.Number `json:"free"`
 	FLVip    json.Number `json:"fl_vip"`
-	DL       string      `json:"dl"`
 }
 
 type searchResponse struct {
@@ -168,12 +167,14 @@ type searchResponse struct {
 // each with a ready-to-download URL, already filtered by the seeders/
 // leechers/size criteria in f (applied client-side — see SearchFilters).
 //
-// The download URL is built as /tor/download.php/{dl}. When the request
-// sets dlLink=true (as this method does), the "dl" field already includes
-// its own "?tid=..." suffix — confirmed against a live response
-// (2026-09-30): "dl": "...longhash...?tid=1273225". MAM's own docs
-// describe appending a separate "?tid=#", which would double it up into
-// "?tid=X?tid=X"; do NOT re-append tid here.
+// The download URL uses MAM's documented download endpoint directly —
+// /tor/download.php?tid={id} — rather than the "dl" hash field from the
+// search response. Both work (the dl hash already carries its own
+// embedded ?tid=..., confirmed live 2026-09-30), but tid-based download.php
+// is the one MAM's own docs describe as the stable, documented contract,
+// including the optional "fl" flag to spend a freeleech wedge on the
+// torrent. This app never sets fl (see DownloadTorrentFile) — MAM's docs
+// warn "no refunds available" for automated use of that flag.
 func (c *Client) Search(f SearchFilters) ([]SearchResult, error) {
 	payload := map[string]any{
 		"tor": map[string]any{
@@ -183,7 +184,6 @@ func (c *Client) Search(f SearchFilters) ([]SearchResult, error) {
 			"main_cat":   []string{}, // empty = all categories
 			"sortType":   sortTypeOrDefault(f.SortType),
 		},
-		"dlLink": "true",
 	}
 	perPage := f.PerPage
 	if perPage <= 0 {
@@ -246,10 +246,7 @@ func (c *Client) Search(f SearchFilters) ([]SearchResult, error) {
 			continue
 		}
 
-		downloadURL := ""
-		if item.DL != "" {
-			downloadURL = fmt.Sprintf("%s/tor/download.php/%s", baseURL, item.DL)
-		}
+		downloadURL := fmt.Sprintf("%s/tor/download.php?tid=%s", baseURL, item.ID.String())
 
 		results = append(results, SearchResult{
 			ID:          item.ID.String(),
