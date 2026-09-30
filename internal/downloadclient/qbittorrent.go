@@ -62,19 +62,42 @@ func (c *qbittorrentClient) login() error {
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(resp.Body)
 
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("qbittorrent login failed: http %d", resp.StatusCode)
+	// qBittorrent's login success response is not consistent across
+	// versions: some return 200 with body "Ok.", others (confirmed live
+	// against a real instance, 2026-09-30) return 204 with an empty body.
+	// The one reliable signal of success is whether a session cookie
+	// (QBT_SID_*) was actually issued — check the cookie jar directly
+	// rather than trust a specific status/body combination.
+	if resp.StatusCode >= 400 {
+		return fmt.Errorf("qbittorrent login failed: http %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
 	}
-	if strings.TrimSpace(string(body)) != "Ok." {
-		return fmt.Errorf("qbittorrent login rejected: %s", strings.TrimSpace(string(body)))
+	if !c.hasSessionCookie() {
+		return fmt.Errorf("qbittorrent login did not return a session cookie (http %d): %s", resp.StatusCode, strings.TrimSpace(string(body)))
 	}
 	c.loggedIn = true
 	return nil
 }
 
+// hasSessionCookie reports whether the client's cookie jar holds a
+// qBittorrent session cookie (QBT_SID_*) for baseURL.
+func (c *qbittorrentClient) hasSessionCookie() bool {
+	u, err := url.Parse(c.baseURL)
+	if err != nil {
+		return false
+	}
+	for _, ck := range c.http.Jar.Cookies(u) {
+		if strings.HasPrefix(ck.Name, "QBT_SID") {
+			return true
+		}
+	}
+	return false
+}
+
 // AddTorrent uploads a .torrent file to qBittorrent via multipart form,
 // matching the WebUI API's /api/v2/torrents/add contract. Retries once
-// with a fresh login if the session had expired.
+// with a fresh login if the session had expired. Torrents start
+// immediately (qBittorrent's default add behavior) — this app does not
+// add torrents paused.
 func (c *qbittorrentClient) AddTorrent(torrentFile []byte, name string) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()

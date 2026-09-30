@@ -55,15 +55,20 @@ each with a comment explaining the discrepancy:
 
 Only qBittorrent is supported as a download client (no qui, for now).
 
+qBittorrent login and add-torrent are verified working against a real
+instance (v5.2.3 / WebAPI 2.15.1, 2026-09-30) — a real MAM search result
+was downloaded and successfully added. One thing this caught: qBittorrent's
+login success response is inconsistent across versions (some return 200
+with body "Ok.", this one returned 204 with an empty body) — fixed by
+checking for a session cookie directly instead of trusting a specific
+status/body combination.
+
 Still not verified:
 
-- **qBittorrent's add-torrent path itself** hasn't been tested against a
-  real qBittorrent instance yet, only written against its documented API
-  contract.
 - The full scheduler run loop (search → download → add to client → record
   history) hasn't been exercised end-to-end yet — only its individual
-  pieces (MAM search/download, the app's own HTTP layer) have been
-  verified in isolation.
+  pieces (MAM search/download, qBittorrent login/add, the app's own HTTP
+  layer) have been verified in isolation.
 
 ## Running
 
