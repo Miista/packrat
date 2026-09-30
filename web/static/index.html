@@ -66,15 +66,18 @@
         </div>
 
         <div class="stat-row">
-          <div class="stat-tile">
+          <div class="stat-tile stat-tile-fill">
             <div class="stat-value">{{ state.have_unsat ? state.unsat_count : '—' }}</div>
             <div class="stat-label">Unsatisfied now</div>
           </div>
-          <div class="stat-tile">
+          <div class="stat-tile stat-tile-fill">
             <div class="stat-value">{{ state.have_unsat ? state.unsat_limit : '—' }}</div>
             <div class="stat-label">MAM limit</div>
           </div>
-          <div class="stat-tile">
+        </div>
+
+        <div class="stat-row">
+          <div class="stat-tile stat-tile-fill">
             <div class="stat-value">{{ state.have_unsat ? (state.unsat_limit - settings.values.reserve) : '—' }}</div>
             <div class="stat-label">Target (limit − reserve)</div>
           </div>

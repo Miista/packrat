@@ -136,6 +136,7 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
   padding: 14px 18px;
   min-width: 110px;
 }
+.stat-tile-fill { flex: 1 1 0; }
 .stat-value { font-size: 24px; font-weight: 700; }
 .stat-label { font-size: 12px; color: var(--text-dim); text-transform: uppercase; }
 
