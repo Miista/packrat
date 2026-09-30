@@ -175,6 +175,14 @@ type searchResponse struct {
 // Search queries MAM's torrent search API and returns matching results,
 // each with a ready-to-download URL, already filtered by the seeders/
 // leechers/size criteria in f (applied client-side — see SearchFilters).
+// rawCount is the number of raw rows MAM returned for this page BEFORE any
+// client-side filtering — callers paginating via StartNumber must advance
+// their cursor by rawCount (or by the requested PerPage, when a caller
+// wants a fixed stride), never by len(results), since filtering can shrink
+// a page to fewer matches or even zero while MAM still has more rows
+// beyond it. rawCount == 0 is the only reliable "MAM has nothing more"
+// signal; len(results) == 0 is not, because a nonempty raw page can still
+// filter down to nothing.
 //
 // The download URL uses MAM's documented download endpoint directly —
 // /tor/download.php?tid={id} — rather than the "dl" hash field from the
@@ -184,7 +192,7 @@ type searchResponse struct {
 // including the optional "fl" flag to spend a freeleech wedge on the
 // torrent. This app never sets fl (see DownloadTorrentFile) — MAM's docs
 // warn "no refunds available" for automated use of that flag.
-func (c *Client) Search(f SearchFilters) ([]SearchResult, error) {
+func (c *Client) Search(f SearchFilters) (results []SearchResult, rawCount int, err error) {
 	perPage := f.PerPage
 	if perPage <= 0 {
 		perPage = 50
@@ -213,12 +221,12 @@ func (c *Client) Search(f SearchFilters) ([]SearchResult, error) {
 
 	body, err := json.Marshal(payload)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	req, err := http.NewRequest(http.MethodPost, baseURL+"/tor/js/loadSearchJSONbasic.php", bytes.NewReader(body))
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("User-Agent", userAgent)
@@ -227,23 +235,24 @@ func (c *Client) Search(f SearchFilters) ([]SearchResult, error) {
 
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	defer resp.Body.Close()
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	if resp.StatusCode >= 400 {
-		return nil, fmt.Errorf("mam http %d", resp.StatusCode)
+		return nil, 0, fmt.Errorf("mam http %d", resp.StatusCode)
 	}
 
 	var parsed searchResponse
 	if err := json.Unmarshal(respBody, &parsed); err != nil {
-		return nil, fmt.Errorf("mam returned non-JSON search response")
+		return nil, 0, fmt.Errorf("mam returned non-JSON search response")
 	}
 
-	results := make([]SearchResult, 0, len(parsed.Data))
+	rawCount = len(parsed.Data)
+	results = make([]SearchResult, 0, len(parsed.Data))
 	for _, item := range parsed.Data {
 		size, err := parseSizeString(item.Size)
 		if err != nil {
@@ -291,7 +300,7 @@ func (c *Client) Search(f SearchFilters) ([]SearchResult, error) {
 			DownloadURL: downloadURL,
 		})
 	}
-	return results, nil
+	return results, rawCount, nil
 }
 
 // searchTypeFor maps FreeleechOnly to MAM's searchType enum ("fl") when

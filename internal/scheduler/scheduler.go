@@ -269,11 +269,27 @@ func (s *Scheduler) runOnce(ctx context.Context, dryRun bool) {
 	// partial batch just because a later search page came back short or
 	// failed. maxPages bounds phase 1 so an exhausted search can't loop
 	// forever.
+	//
+	// rawPageSize/rawCursor track MAM's own result-set position, which is
+	// NOT the same as len(candidates): Search() applies client-side filters
+	// (seeders/leechers/size range, freeleech, already-snatched — see
+	// mamclient.Search) after fetching one raw page, so a raw page can
+	// return fewer matches than requested, or even zero, while MAM still
+	// has more matching rows further on. Advancing StartNumber by however
+	// many candidates were accepted (instead of by the raw page size
+	// actually requested) would desync the cursor from MAM's real result
+	// set and could skip straight past still-matching rows — which is
+	// exactly what caused runs to wrongly report "no more candidates"
+	// after less than the needed count. A raw page only means genuine
+	// exhaustion when MAM returns zero raw rows for it — Search's rawCount
+	// return value, not len(results).
 	const maxPages = 10
+	const rawPageSize = 100
 	cancelled := false
 	noMoreResults := false
 	searchFailed := false
 	candidates := make([]mamclient.SearchResult, 0, needed)
+	rawCursor := 0
 
 	for page := 0; page < maxPages && len(candidates) < needed; page++ {
 		if ctx.Err() != nil {
@@ -291,19 +307,21 @@ func (s *Scheduler) runOnce(ctx context.Context, dryRun bool) {
 			MaxSizeMB:     cfg.SearchFilters.MaxSizeMB,
 			FreeleechOnly: cfg.SearchFilters.FreeleechOnly,
 			SortType:      cfg.SearchFilters.SortType,
-			PerPage:       needed - len(candidates),
-			StartNumber:   page * needed,
+			PerPage:       rawPageSize,
+			StartNumber:   rawCursor,
 		}
-		results, err := mam.Search(filters)
+		results, rawCount, err := mam.Search(filters)
 		if err != nil {
 			entry.Result = fmt.Sprintf("Search failed: %v", err)
 			s.log.Warn().Err(err).Msg(entry.Result)
 			searchFailed = true
 			break
 		}
-		if len(results) == 0 {
-			// MAM has nothing more to offer for these filters; further
-			// pages would be empty too.
+		rawCursor += rawPageSize
+		if rawCount == 0 {
+			// MAM returned zero raw rows for this page — genuinely nothing
+			// more to offer, not just a page that got filtered down to
+			// nothing.
 			noMoreResults = true
 			break
 		}
