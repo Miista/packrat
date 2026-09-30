@@ -1,0 +1,6 @@
+# Compiled binary (built via `make build`, not checked in)
+/mam-ratio
+
+# Runtime data: persisted settings, MAM session cookie, admin credentials,
+# session tokens, download client password. Never commit this.
+/data/

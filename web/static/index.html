@@ -1,0 +1,212 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>mam-ratio</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div id="app" v-scope="App()" @vue:mounted="mounted">
+
+  <header class="topbar">
+    <div class="brand">mam-ratio</div>
+    <button v-if="loggedIn" class="link-btn" @click="logout">Log out</button>
+  </header>
+
+  <main>
+    <!-- First-launch admin setup -->
+    <section v-if="view === 'setup'" class="auth-card">
+      <h1>Create admin account</h1>
+      <p class="dim">This is a one-time setup. Choose credentials to protect mam-ratio's dashboard and API.</p>
+      <form @submit.prevent="submitSetup">
+        <label>Username<input type="text" v-model="setupForm.username" required autocomplete="username"></label>
+        <label>Password<input v-model="setupForm.password" type="password" minlength="8" required autocomplete="new-password"></label>
+        <p class="error-box" v-if="setupError">{{ setupError }}</p>
+        <button type="submit">Create admin account</button>
+      </form>
+    </section>
+
+    <!-- Login -->
+    <section v-if="view === 'login'" class="auth-card">
+      <h1>Sign in</h1>
+      <form @submit.prevent="submitLogin">
+        <label>Username<input type="text" v-model="loginForm.username" required autocomplete="username"></label>
+        <label>Password<input v-model="loginForm.password" type="password" required autocomplete="current-password"></label>
+        <p class="error-box" v-if="loginError">{{ loginError }}</p>
+        <button type="submit">Sign in</button>
+      </form>
+    </section>
+
+    <!-- Dashboard -->
+    <section v-if="view === 'app'">
+      <nav class="tabs">
+        <button :class="{active: tab === 'dashboard'}" @click="tab = 'dashboard'">Dashboard</button>
+        <button :class="{active: tab === 'settings'}" @click="tab = 'settings'">Settings</button>
+      </nav>
+
+      <div v-if="tab === 'dashboard'">
+        <div class="status-card" :class="state.paused ? 'status-paused' : (state.scheduler_enabled ? 'status-running' : 'status-idle')">
+          <div class="status-main">
+            <span class="status-badge">{{ statusLabel }}</span>
+            <span class="dim" v-if="state.scheduler_enabled && !state.paused && state.next_run_time">
+              Next run: {{ formatTime(state.next_run_time) }}
+            </span>
+          </div>
+          <div class="status-actions">
+            <button v-if="!state.scheduler_enabled || state.paused" class="btn-primary" @click="startSchedule">Activate</button>
+            <button v-else class="btn-danger" @click="pauseSchedule">Deactivate</button>
+            <button class="btn-secondary" :disabled="state.running" @click="runNow">{{ state.running ? 'Running…' : 'Run now' }}</button>
+          </div>
+        </div>
+
+        <div class="stat-row">
+          <div class="stat-tile">
+            <div class="stat-value">{{ state.have_unsat ? state.unsat_count : '—' }}</div>
+            <div class="stat-label">Unsatisfied now</div>
+          </div>
+          <div class="stat-tile">
+            <div class="stat-value">{{ state.have_unsat ? state.unsat_limit : '—' }}</div>
+            <div class="stat-label">MAM limit</div>
+          </div>
+          <div class="stat-tile">
+            <div class="stat-value">{{ state.have_unsat ? (state.unsat_limit - settings.values.reserve) : '—' }}</div>
+            <div class="stat-label">Target (limit − reserve)</div>
+          </div>
+        </div>
+
+        <div class="stat-row">
+          <div class="stat-tile"><div class="stat-value">{{ state.totals.cumulative_torrents_added }}</div><div class="stat-label">Torrents added (total)</div></div>
+          <div class="stat-tile"><div class="stat-value">{{ state.totals.cumulative_runs }}</div><div class="stat-label">Runs completed</div></div>
+        </div>
+
+        <h2>Run history</h2>
+        <table class="data-table" v-if="state.history.length">
+          <thead><tr><th>Started</th><th>Result</th><th>Unsatisfied</th><th>Limit</th><th>Target</th><th>Needed</th><th>Added</th></tr></thead>
+          <tbody>
+            <tr v-for="h in state.history" :key="h.started_at">
+              <td class="mono dim">{{ formatTime(h.started_at) }}</td>
+              <td>{{ h.result }}</td>
+              <td>{{ h.unsat_count }}</td>
+              <td>{{ h.unsat_limit }}</td>
+              <td>{{ h.target_count }}</td>
+              <td>{{ h.needed_count }}</td>
+              <td>{{ (h.added_torrents || []).length }}</td>
+            </tr>
+          </tbody>
+        </table>
+        <p v-else class="dim">No runs yet.</p>
+      </div>
+
+      <div v-if="tab === 'settings'">
+        <p class="dim">
+          Fields locked with <span class="lock-icon">&#128274;</span> are pinned by an environment variable and
+          cannot be changed here. This is the recommended way to set your MAM Session_ID — it never touches disk.
+        </p>
+
+        <form @submit.prevent="saveSettings" class="settings-form">
+          <fieldset>
+            <legend>MAM session</legend>
+            <div class="field-row" v-if="settings.env_managed.mam_id">
+              <label>Mam Session_ID</label>
+              <div class="locked-field">
+                <span class="lock-icon">&#128274;</span>
+                <span class="mono">{{ settings.values.mam_id || '(not set)' }}</span>
+                <span class="locked-caption">Managed by <code>{{ settings.env_managed.mam_id }}</code></span>
+              </div>
+            </div>
+            <div class="field-row" v-else>
+              <label>Mam Session_ID</label>
+              <input type="password" v-model="mamIdInput" :placeholder="settings.values.mam_id || 'Paste your mam_id cookie value'">
+              <p class="hint">Prefer setting <code>MAMRATIO_SETTING_MAM_ID</code> as an environment variable instead — it avoids storing the cookie on disk at all.</p>
+            </div>
+          </fieldset>
+
+          <fieldset>
+            <legend>Target</legend>
+            <div class="field-row" v-for="f in [
+              {key:'reserve', label:'Reserve', min:0, max:null, hint:'Kept below MAM\'s unsatisfied-torrent limit — target = limit − reserve.'},
+              {key:'max_add_per_run', label:'Max torrents to add per run', min:1, max:null, hint:'Safety cap on how many torrents one run can add, even if more are needed to reach target.'},
+              {key:'next_run_delay_minutes', label:'Minutes between runs', min:2, max:null, hint:'How often the scheduler checks in and runs the top-up while active.'},
+            ]" :key="f.key">
+              <label>{{ f.label }}</label>
+              <div v-if="settings.env_managed[f.key]" class="locked-field">
+                <span class="lock-icon">&#128274;</span>
+                <span class="mono">{{ settings.values[f.key] }}</span>
+                <span class="locked-caption">Managed by <code>{{ settings.env_managed[f.key] }}</code></span>
+              </div>
+              <input v-else type="number" v-model.number="settings.values[f.key]" :min="f.min" :max="f.max || undefined">
+              <p class="hint">{{ f.hint }}</p>
+            </div>
+          </fieldset>
+
+          <fieldset>
+            <legend>Search filters</legend>
+            <div class="field-row">
+              <label>Keyword (optional)</label>
+              <input type="text" v-model="settings.values.search_filters.text" placeholder="Leave blank to match any title">
+            </div>
+            <div class="field-row" v-for="f in [
+              {key:'min_seeders', label:'Minimum seeders'},
+              {key:'max_seeders', label:'Maximum seeders (0 = no max)'},
+              {key:'min_leechers', label:'Minimum leechers'},
+              {key:'max_leechers', label:'Maximum leechers (0 = no max)'},
+              {key:'min_size_mb', label:'Minimum size (MB)'},
+              {key:'max_size_mb', label:'Maximum size (0 = no max)'},
+            ]" :key="f.key">
+              <label>{{ f.label }}</label>
+              <input type="number" v-model.number="settings.values.search_filters[f.key]" min="0">
+            </div>
+            <div class="field-row">
+              <label class="checkbox-label">
+                <input type="checkbox" v-model="settings.values.search_filters.freeleech_only">
+                Freeleech only
+              </label>
+            </div>
+            <div class="field-row">
+              <label>Sort results by</label>
+              <select v-model="settings.values.search_filters.sort_type">
+                <option value="default">Default</option>
+                <option value="seeders">Seeders</option>
+                <option value="size">Size</option>
+              </select>
+            </div>
+          </fieldset>
+
+          <fieldset>
+            <legend>Download client</legend>
+            <div class="field-row">
+              <label>Client type</label>
+              <select v-model="settings.values.download_client.type">
+                <option value="qbittorrent">qBittorrent</option>
+                <option value="qui">qui</option>
+              </select>
+            </div>
+            <div class="field-row">
+              <label>URL</label>
+              <input type="text" v-model="settings.values.download_client.url" placeholder="http://qbittorrent:8090">
+            </div>
+            <div class="field-row">
+              <label>Username</label>
+              <input type="text" v-model="settings.values.download_client.username">
+            </div>
+            <div class="field-row">
+              <label>Password</label>
+              <input type="password" v-model="downloadClientPasswordInput" :placeholder="settings.values.download_client.password_set ? 'Unchanged (leave blank to keep)' : 'Not set'">
+            </div>
+          </fieldset>
+
+          <p class="error-box" v-if="settingsError">{{ settingsError }}</p>
+          <p class="success-box" v-if="settingsSaved">Settings saved.</p>
+          <button type="submit">Save settings</button>
+        </form>
+      </div>
+    </section>
+  </main>
+</div>
+
+<script src="vendor/petite-vue.iife.js"></script>
+<script type="module" src="app.js"></script>
+</body>
+</html>
