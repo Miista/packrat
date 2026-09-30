@@ -158,8 +158,8 @@
               {key:'max_seeders', label:'Maximum seeders (0 = no max)'},
               {key:'min_leechers', label:'Minimum leechers'},
               {key:'max_leechers', label:'Maximum leechers (0 = no max)'},
-              {key:'min_size_mb', label:'Minimum size (MB)'},
-              {key:'max_size_mb', label:'Maximum size (0 = no max)'},
+              {key:'min_size_mb', label:'Minimum size (MiB)'},
+              {key:'max_size_mb', label:'Maximum size (MiB, 0 = no max)'},
             ]" :key="f.key">
               <label>{{ f.label }}</label>
               <input type="number" v-model.number="settings.values.search_filters[f.key]" min="0">
