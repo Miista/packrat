@@ -23,7 +23,7 @@ function App() {
     runHistory: {
       entries: [],
       page: 1,
-      page_size: 20,
+      page_size: 5,
       total: 0,
       total_pages: 1,
     },

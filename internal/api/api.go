@@ -169,7 +169,7 @@ func (s *Server) handleState(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-const defaultHistoryPageSize = 20
+const defaultHistoryPageSize = 5
 
 // handleHistory returns one page of run history, newest first. Kept as its
 // own endpoint (rather than embedded in /api/state, which is polled
