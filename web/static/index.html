@@ -272,7 +272,7 @@
                 <div class="paired-input">
                   <input type="number" :class="{'limit-input-hidden': limitMode(f.key) !== 'custom'}"
                     v-model.number="settings.values.download_client.add_options[f.key]"
-                    min="0" :step="f.step" :tabindex="limitMode(f.key) === 'custom' ? 0 : -1">
+                    :min="limitMode(f.key) === 'custom' ? 0 : undefined" :step="f.step" :tabindex="limitMode(f.key) === 'custom' ? 0 : -1">
                   <span class="paired-input-caption" v-if="limitMode(f.key) === 'custom' && f.key === 'seeding_time_limit_minutes'">
                     {{ minutesAsDuration(settings.values.download_client.add_options[f.key]) }}
                   </span>
