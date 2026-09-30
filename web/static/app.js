@@ -43,6 +43,16 @@ function App() {
     pollTimer: null,
 
     async mounted() {
+      // Closes the dry-run dropdown on any click outside the split-button.
+      // Wired once here (a known-good lifecycle hook — the root #app's own
+      // @vue:mounted) rather than via a nested @vue:mounted on the
+      // split-button div itself, which failed to bind reliably in Safari
+      // (ReferenceError on runMenuOpen/registerRunMenu — the split-button
+      // subtree's scope bindings never got set up).
+      document.addEventListener('click', (e) => {
+        if (!e.target.closest('.split-button')) this.runMenuOpen = false;
+      });
+
       const setupRes = await fetch('/api/setup');
       const setupData = await setupRes.json();
       if (!setupData.admin_exists) {
@@ -161,17 +171,6 @@ function App() {
         return;
       }
       await this.tryLoadState();
-    },
-
-    // registerRunMenu wires a document-level click listener (once, on the
-    // split-button's mount) that closes the dry-run dropdown whenever a
-    // click lands outside it — petite-vue has no built-in click-outside
-    // directive, so this is done by hand rather than pulling in a library
-    // for one small behavior.
-    registerRunMenu(el) {
-      document.addEventListener('click', (e) => {
-        if (!el.contains(e.target)) this.runMenuOpen = false;
-      });
     },
 
     async saveSettings() {
