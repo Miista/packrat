@@ -14,17 +14,16 @@ import (
 	"time"
 )
 
-// Download client backends.
+// Download client backends. Only qBittorrent is supported for now.
 const (
 	ClientQBittorrent = "qbittorrent"
-	ClientQui         = "qui"
 )
 
 // DownloadClient holds connection details for the configured torrent
 // client. Password is a persisted secret, masked whenever rendered to the
 // API.
 type DownloadClient struct {
-	Type     string `json:"type"` // qbittorrent | qui
+	Type     string `json:"type"` // qbittorrent
 	URL      string `json:"url"`
 	Username string `json:"username"`
 	Password string `json:"password"`

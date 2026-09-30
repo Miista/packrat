@@ -5,7 +5,7 @@
 Automates topping up a MyAnonamouse account's number of unsatisfied
 torrents to a target (the account's rank-based limit minus a configurable
 reserve), by searching MAM for candidates matching configurable criteria
-and adding them to a download client (qBittorrent, or qui).
+and adding them to a download client. Only qBittorrent is supported.
 
 Sibling project to [AutoMouse](../automouse) (MAM bonus-point spending) —
 same conventions: Go, zerolog, first-launch admin auth with persistent
@@ -53,10 +53,10 @@ each with a comment explaining the discrepancy:
   filtering server-side. Those four filters are applied **client-side**,
   as a post-filter over search results (`passesFilters`).
 
-Still not verified / not implemented:
+Only qBittorrent is supported as a download client (no qui, for now).
 
-- **qui download client**: not implemented at all — `internal/downloadclient/qui.go`
-  is a stub that always errors. Only qBittorrent's WebUI API is wired up.
+Still not verified:
+
 - **qBittorrent's add-torrent path itself** hasn't been tested against a
   real qBittorrent instance yet, only written against its documented API
   contract.

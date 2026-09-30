@@ -291,7 +291,8 @@ func applySearchFiltersPatch(f *store.SearchFilters, incoming map[string]any) {
 
 func applyDownloadClientPatch(dc *store.DownloadClient, incoming map[string]any) {
 	if v, ok := incoming["type"].(string); ok {
-		if v == store.ClientQBittorrent || v == store.ClientQui {
+		// Only qBittorrent is supported for now.
+		if v == store.ClientQBittorrent {
 			dc.Type = v
 		}
 	}

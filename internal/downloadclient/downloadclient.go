@@ -1,6 +1,6 @@
-// Package downloadclient abstracts over torrent client backends
-// (qBittorrent, qui) so the scheduler can add torrents without knowing
-// which one is configured.
+// Package downloadclient abstracts over torrent client backends so the
+// scheduler can add torrents without knowing which one is configured. Only
+// qBittorrent is supported for now.
 package downloadclient
 
 import (
@@ -21,8 +21,6 @@ func New(cfg store.DownloadClient) (Client, error) {
 	switch cfg.Type {
 	case store.ClientQBittorrent:
 		return newQBittorrentClient(cfg), nil
-	case store.ClientQui:
-		return newQuiClient(cfg), nil
 	default:
 		return nil, fmt.Errorf("unknown download client type %q", cfg.Type)
 	}
