@@ -199,8 +199,12 @@
               <label>Sort results by</label>
               <select v-model="settings.values.search_filters.sort_type">
                 <option value="default">Default</option>
-                <option value="seeders">Seeders</option>
-                <option value="size">Size</option>
+                <option value="seedersDesc">Seeders (most first)</option>
+                <option value="seedersAsc">Seeders (fewest first)</option>
+                <option value="sizeDesc">Size (largest first)</option>
+                <option value="sizeAsc">Size (smallest first)</option>
+                <option value="dateDesc">Date added (newest first)</option>
+                <option value="dateAsc">Date added (oldest first)</option>
               </select>
             </div>
           </fieldset>
