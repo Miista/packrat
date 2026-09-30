@@ -57,11 +57,15 @@
           <div class="status-actions">
             <button v-if="!state.scheduler_enabled || state.paused" class="btn-primary" @click="startSchedule">Activate</button>
             <button v-else class="btn-danger" @click="pauseSchedule">Deactivate</button>
-            <label class="checkbox-label" style="margin: 0 4px;">
-              <input type="checkbox" v-model="dryRunMode">
-              Dry run
-            </label>
-            <button class="btn-secondary" :disabled="state.running" @click="runNow">{{ state.running ? 'Running…' : (dryRunMode ? 'Run now (dry)' : 'Run now') }}</button>
+            <div class="split-button" @vue:mounted="registerRunMenu($el)">
+              <button class="btn-secondary split-button-main" :disabled="state.running" @click="runNow(false)">{{ state.running ? 'Running…' : 'Run now' }}</button>
+              <button class="btn-secondary split-button-toggle" :disabled="state.running" @click.stop="runMenuOpen = !runMenuOpen">
+                <svg viewBox="0 0 10 6" width="10" height="6" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M1 1l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              </button>
+              <div class="split-button-menu" v-if="runMenuOpen">
+                <button @click="runMenuOpen = false; runNow(true)">Dry run</button>
+              </div>
+            </div>
           </div>
         </div>
         <p class="error-box" v-if="schedulerError">{{ schedulerError }}</p>
@@ -246,24 +250,30 @@
                 </div>
               </div>
             </div>
-            <div class="field-row" v-for="f in [
+            <div class="field-row paired-row" v-for="f in [
               {key:'ratio_limit', label:'Ratio limit', step:0.1},
               {key:'seeding_time_limit_minutes', label:'Seeding time limit (minutes)', step:1},
             ]" :key="f.key">
               <label>{{ f.label }}</label>
-              <div class="limit-picker">
-                <select :value="limitMode(f.key)" @change="setLimitMode(f.key, $event.target.value)">
-                  <option value="global">Use global</option>
-                  <option value="unlimited">Unlimited</option>
-                  <option value="custom">Custom</option>
-                </select>
-                <input type="number" :class="{'limit-input-hidden': limitMode(f.key) !== 'custom'}"
-                  v-model.number="settings.values.download_client.add_options[f.key]"
-                  min="0" :step="f.step" :tabindex="limitMode(f.key) === 'custom' ? 0 : -1">
+              <div class="paired-inputs">
+                <div class="paired-input">
+                  <select :value="limitMode(f.key)" @change="setLimitMode(f.key, $event.target.value)">
+                    <option value="global">Use global</option>
+                    <option value="unlimited">Unlimited</option>
+                    <option value="custom">Custom</option>
+                  </select>
+                  <span class="paired-input-caption">Mode</span>
+                </div>
+                <div class="paired-input">
+                  <input type="number" :class="{'limit-input-hidden': limitMode(f.key) !== 'custom'}"
+                    v-model.number="settings.values.download_client.add_options[f.key]"
+                    min="0" :step="f.step" :tabindex="limitMode(f.key) === 'custom' ? 0 : -1">
+                  <span class="paired-input-caption" v-if="limitMode(f.key) === 'custom' && f.key === 'seeding_time_limit_minutes'">
+                    {{ minutesAsDuration(settings.values.download_client.add_options[f.key]) }}
+                  </span>
+                  <span class="paired-input-caption" v-else-if="limitMode(f.key) === 'custom'">Value</span>
+                </div>
               </div>
-              <p class="hint" v-if="f.key === 'seeding_time_limit_minutes' && limitMode(f.key) === 'custom'">
-                {{ minutesAsDuration(settings.values.download_client.add_options[f.key]) }}
-              </p>
             </div>
           </fieldset>
 

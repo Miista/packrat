@@ -3,7 +3,7 @@ function App() {
     view: 'loading', // 'loading' | 'setup' | 'login' | 'app'
     tab: 'dashboard',
     loggedIn: false,
-    dryRunMode: false,
+    runMenuOpen: false,
 
     setupForm: { username: '', password: '' },
     setupError: '',
@@ -151,9 +151,9 @@ function App() {
       await this.tryLoadState();
     },
 
-    async runNow() {
+    async runNow(dryRun) {
       this.schedulerError = '';
-      const endpoint = this.dryRunMode ? '/api/dry-run' : '/api/run';
+      const endpoint = dryRun ? '/api/dry-run' : '/api/run';
       const res = await fetch(endpoint, { method: 'POST' });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
@@ -161,6 +161,17 @@ function App() {
         return;
       }
       await this.tryLoadState();
+    },
+
+    // registerRunMenu wires a document-level click listener (once, on the
+    // split-button's mount) that closes the dry-run dropdown whenever a
+    // click lands outside it — petite-vue has no built-in click-outside
+    // directive, so this is done by hand rather than pulling in a library
+    // for one small behavior.
+    registerRunMenu(el) {
+      document.addEventListener('click', (e) => {
+        if (!el.contains(e.target)) this.runMenuOpen = false;
+      });
     },
 
     async saveSettings() {
