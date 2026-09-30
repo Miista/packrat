@@ -94,6 +94,10 @@ type HistoryEntry struct {
 	TargetCount   int            `json:"target_count"` // limit - reserve
 	NeededCount   int            `json:"needed_count"`
 	AddedTorrents []AddedTorrent `json:"added_torrents"`
+	// DryRun marks an entry from a manual dry-run trigger: real MAM status
+	// and search, but nothing was actually downloaded or added, and
+	// cumulative totals were not updated.
+	DryRun bool `json:"dry_run"`
 }
 
 // Admin holds the single admin account (Sonarr/Radarr first-launch pattern).

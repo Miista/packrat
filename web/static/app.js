@@ -130,6 +130,11 @@ function App() {
       await this.tryLoadState();
     },
 
+    async dryRunNow() {
+      await fetch('/api/dry-run', { method: 'POST' });
+      await this.tryLoadState();
+    },
+
     async saveSettings() {
       this.settingsError = '';
       this.settingsSaved = false;

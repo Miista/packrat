@@ -48,6 +48,7 @@ func (s *Server) Routes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/start", s.guarded(s.csrfGuard(s.handleStart)))
 	mux.HandleFunc("/api/pause", s.guarded(s.csrfGuard(s.handlePause)))
 	mux.HandleFunc("/api/run", s.guarded(s.csrfGuard(s.handleRun)))
+	mux.HandleFunc("/api/dry-run", s.guarded(s.csrfGuard(s.handleDryRun)))
 }
 
 // guarded enforces that, once an admin account exists (and auth isn't
@@ -213,6 +214,11 @@ func (s *Server) handlePause(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleRun(w http.ResponseWriter, r *http.Request) {
 	started := s.scheduler.RunNow()
+	writeJSON(w, http.StatusOK, map[string]bool{"started": started})
+}
+
+func (s *Server) handleDryRun(w http.ResponseWriter, r *http.Request) {
+	started := s.scheduler.RunDryNow()
 	writeJSON(w, http.StatusOK, map[string]bool{"started": started})
 }
 

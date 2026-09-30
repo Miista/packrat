@@ -7,6 +7,7 @@ package scheduler
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -114,6 +115,30 @@ func (s *Scheduler) RunNow() bool {
 	return true
 }
 
+// RunDryNow triggers an immediate, one-off dry run: fetches the real
+// unsat status and runs a real search, but stops before downloading or
+// adding anything. This is a manual, on-demand action only — the scheduler
+// itself never does a dry run on its own, and a dry run never reschedules
+// the next real run or updates cumulative totals.
+func (s *Scheduler) RunDryNow() bool {
+	s.mu.Lock()
+	if s.running {
+		s.mu.Unlock()
+		return false
+	}
+	s.running = true
+	s.mu.Unlock()
+	go func() {
+		defer func() {
+			s.mu.Lock()
+			s.running = false
+			s.mu.Unlock()
+		}()
+		s.runOnce(context.Background(), true)
+	}()
+	return true
+}
+
 // IsRunning reports whether a top-up pass is currently executing.
 func (s *Scheduler) IsRunning() bool {
 	s.mu.Lock()
@@ -150,7 +175,7 @@ func (s *Scheduler) runAndReschedule() {
 		cancel()
 	}()
 
-	s.runOnce(ctx)
+	s.runOnce(ctx, false)
 
 	_ = s.store.Update(func(st *store.State) {
 		if st.SchedulerOn && !st.Paused {
@@ -161,9 +186,9 @@ func (s *Scheduler) runAndReschedule() {
 	})
 }
 
-func (s *Scheduler) runOnce(ctx context.Context) {
+func (s *Scheduler) runOnce(ctx context.Context, dryRun bool) {
 	startedAt := time.Now()
-	entry := store.HistoryEntry{StartedAt: startedAt, CreatedAt: startedAt, Result: "Completed"}
+	entry := store.HistoryEntry{StartedAt: startedAt, CreatedAt: startedAt, Result: "Completed", DryRun: dryRun}
 
 	var resolved settings.Resolved
 	s.store.View(func(st store.State) {
@@ -210,12 +235,16 @@ func (s *Scheduler) runOnce(ctx context.Context) {
 	}
 	entry.NeededCount = needed
 
-	dlClient, err := downloadclient.New(cfg.DownloadClient)
-	if err != nil {
-		entry.Result = fmt.Sprintf("Download client not configured: %v", err)
-		s.log.Warn().Err(err).Msg(entry.Result)
-		s.appendHistory(entry)
-		return
+	var dlClient downloadclient.Client
+	if !dryRun {
+		var err error
+		dlClient, err = downloadclient.New(cfg.DownloadClient)
+		if err != nil {
+			entry.Result = fmt.Sprintf("Download client not configured: %v", err)
+			s.log.Warn().Err(err).Msg(entry.Result)
+			s.appendHistory(entry)
+			return
+		}
 	}
 
 	filters := mamclient.SearchFilters{
@@ -262,6 +291,16 @@ func (s *Scheduler) runOnce(ctx context.Context) {
 			s.log.Warn().Str("title", res.Title).Msg("search result had no download URL, skipping")
 			continue
 		}
+
+		if dryRun {
+			// Dry run: candidate is a real search result that passed every
+			// filter, but nothing is downloaded or added — just recorded
+			// as what this run would have picked.
+			added = append(added, store.AddedTorrent{ID: res.ID, Title: res.Title, Size: res.SizeBytes})
+			s.log.Info().Str("title", res.Title).Int64("size", res.SizeBytes).Msg("dry run: would add torrent")
+			continue
+		}
+
 		torrentFile, err := mam.DownloadTorrentFile(res.DownloadURL)
 		if err != nil {
 			s.log.Warn().Err(err).Str("title", res.Title).Msg("failed to fetch torrent file, skipping")
@@ -276,18 +315,24 @@ func (s *Scheduler) runOnce(ctx context.Context) {
 	}
 
 	entry.AddedTorrents = added
+	verb := "Added"
+	if dryRun {
+		verb = "Would add"
+	}
 	switch {
 	case cancelled:
-		entry.Result = fmt.Sprintf("Stopped: added %d of %d needed torrents before the scheduler was deactivated.", len(added), needed)
+		entry.Result = fmt.Sprintf("Stopped: %s %d of %d needed torrents before the scheduler was deactivated.", strings.ToLower(verb), len(added), needed)
 	case len(added) < needed:
-		entry.Result = fmt.Sprintf("Added %d of %d needed torrents (ran out of candidates or hit errors).", len(added), needed)
+		entry.Result = fmt.Sprintf("%s %d of %d needed torrents (ran out of candidates or hit errors).", verb, len(added), needed)
 	default:
-		entry.Result = fmt.Sprintf("Added %d torrents.", len(added))
+		entry.Result = fmt.Sprintf("%s %d torrents.", verb, len(added))
 	}
 
-	s.updateTotals(len(added))
+	if !dryRun {
+		s.updateTotals(len(added))
+	}
 	s.appendHistory(entry)
-	s.log.Info().Int("added", len(added)).Int("needed", needed).Msg("top-up run complete")
+	s.log.Info().Int("added", len(added)).Int("needed", needed).Bool("dry_run", dryRun).Msg("run complete")
 }
 
 func (s *Scheduler) updateTotals(added int) {

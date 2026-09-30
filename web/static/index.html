@@ -58,6 +58,7 @@
             <button v-if="!state.scheduler_enabled || state.paused" class="btn-primary" @click="startSchedule">Activate</button>
             <button v-else class="btn-danger" @click="pauseSchedule">Deactivate</button>
             <button class="btn-secondary" :disabled="state.running" @click="runNow">{{ state.running ? 'Running…' : 'Run now' }}</button>
+            <button class="btn-secondary" :disabled="state.running" @click="dryRunNow">Dry run</button>
           </div>
         </div>
 
@@ -87,7 +88,7 @@
           <tbody>
             <tr v-for="h in state.history" :key="h.started_at">
               <td class="mono dim">{{ formatTime(h.started_at) }}</td>
-              <td>{{ h.result }}</td>
+              <td><span v-if="h.dry_run" class="locked-caption" style="margin-right:6px;">DRY RUN</span>{{ h.result }}</td>
               <td>{{ h.unsat_count }}</td>
               <td>{{ h.unsat_limit }}</td>
               <td>{{ h.target_count }}</td>
