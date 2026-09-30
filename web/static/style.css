@@ -178,7 +178,7 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
   padding: 16px 18px;
   margin-bottom: 16px;
 }
-.settings-form legend { color: var(--text); font-size: 13px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; padding: 0 6px; }
+.settings-form legend { color: var(--accent); font-size: 13px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; padding: 0 6px; }
 .step-label {
   font-size: 11px;
   font-weight: 700;
