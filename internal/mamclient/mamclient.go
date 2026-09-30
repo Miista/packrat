@@ -157,6 +157,11 @@ type searchResponseItem struct {
 	Leechers json.Number `json:"leechers"`
 	Free     json.Number `json:"free"`
 	FLVip    json.Number `json:"fl_vip"`
+	// MySnatched is present in the real response (confirmed live,
+	// 2026-09-30) despite not being listed in MAM's own output-parameters
+	// table — another gap between that table and reality, same category as
+	// size/title/etc above.
+	MySnatched json.Number `json:"my_snatched"`
 }
 
 type searchResponse struct {
@@ -235,10 +240,18 @@ func (c *Client) Search(f SearchFilters) ([]SearchResult, error) {
 		leechersN, _ := item.Leechers.Int64()
 		freeN, _ := item.Free.Int64()
 		flVipN, _ := item.FLVip.Int64()
+		mySnatchedN, _ := item.MySnatched.Int64()
 		freeleech := freeN != 0 || flVipN != 0
 		seeders := int(seedersN)
 		leechers := int(leechersN)
 
+		if mySnatchedN != 0 {
+			// Already snatched by this account — skip it rather than let
+			// it reach the download client, where it would just be
+			// rejected as a duplicate (wasting a download+add attempt)
+			// without freeing up a slot toward the top-up target.
+			continue
+		}
 		if !passesFilters(f, size, seeders, leechers) {
 			continue
 		}
