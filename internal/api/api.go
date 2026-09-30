@@ -5,6 +5,7 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/url"
 	"strings"
@@ -200,7 +201,11 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleStart(w http.ResponseWriter, r *http.Request) {
 	if err := s.scheduler.StartSchedule(); err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		status := http.StatusInternalServerError
+		if errors.Is(err, scheduler.ErrNoDownloadClient) {
+			status = http.StatusBadRequest
+		}
+		writeJSON(w, status, map[string]string{"error": err.Error()})
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
@@ -215,7 +220,15 @@ func (s *Server) handlePause(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleRun(w http.ResponseWriter, r *http.Request) {
-	started := s.scheduler.RunNow()
+	started, err := s.scheduler.RunNow()
+	if err != nil {
+		status := http.StatusInternalServerError
+		if errors.Is(err, scheduler.ErrNoDownloadClient) {
+			status = http.StatusBadRequest
+		}
+		writeJSON(w, status, map[string]string{"error": err.Error()})
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]bool{"started": started})
 }
 
@@ -325,6 +338,36 @@ func applyDownloadClientPatch(dc *store.DownloadClient, incoming map[string]any)
 	if v, ok := incoming["password"].(string); ok && v != "" {
 		dc.Password = v
 	}
+	if ao, ok := incoming["add_options"].(map[string]any); ok {
+		applyAddOptionsPatch(&dc.AddOptions, ao)
+	}
+}
+
+func applyAddOptionsPatch(ao *store.AddOptions, incoming map[string]any) {
+	if v, ok := incoming["category"].(string); ok {
+		ao.Category = strings.TrimSpace(v)
+	}
+	if v, ok := incoming["tags"].(string); ok {
+		ao.Tags = strings.TrimSpace(v)
+	}
+	setNonNegInt := func(key string, dst *int) {
+		if v, ok := incoming[key].(float64); ok {
+			n := int(v)
+			if n < 0 {
+				n = 0
+			}
+			*dst = n
+		}
+	}
+	setNonNegInt("upload_limit_kbs", &ao.UploadLimitKBs)
+	setNonNegInt("download_limit_kbs", &ao.DownloadLimitKBs)
+	setNonNegInt("seeding_time_limit_minutes", &ao.SeedingTimeLimitMinutes)
+	if v, ok := incoming["ratio_limit"].(float64); ok {
+		if v < 0 {
+			v = 0
+		}
+		ao.RatioLimit = v
+	}
 }
 
 // publicSettings renders resolved settings for API responses: env-managed
@@ -353,6 +396,14 @@ func publicSettings(resolved settings.Resolved) map[string]any {
 			"username":     s.DownloadClient.Username,
 			"password":     settings.MaskSecret(s.DownloadClient.Password),
 			"password_set": s.DownloadClient.Password != "",
+			"add_options": map[string]any{
+				"category":                   s.DownloadClient.AddOptions.Category,
+				"tags":                       s.DownloadClient.AddOptions.Tags,
+				"upload_limit_kbs":           s.DownloadClient.AddOptions.UploadLimitKBs,
+				"download_limit_kbs":         s.DownloadClient.AddOptions.DownloadLimitKBs,
+				"ratio_limit":                s.DownloadClient.AddOptions.RatioLimit,
+				"seeding_time_limit_minutes": s.DownloadClient.AddOptions.SeedingTimeLimitMinutes,
+			},
 		},
 	}
 	envManaged := map[string]string{}

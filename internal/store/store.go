@@ -27,6 +27,33 @@ type DownloadClient struct {
 	URL      string `json:"url"`
 	Username string `json:"username"`
 	Password string `json:"password"`
+
+	// AddOptions are applied to every torrent this app adds. All fields are
+	// optional (zero value = leave qBittorrent's own default behavior
+	// alone) — e.g. RatioLimit/SeedingTimeLimitMinutes of 0 means "use the
+	// client's global limit", not "no limit".
+	AddOptions AddOptions `json:"add_options"`
+}
+
+// AddOptions are the qBittorrent /api/v2/torrents/add fields this app lets
+// the user pin on every torrent it adds, rather than leaving them at
+// qBittorrent's own defaults.
+type AddOptions struct {
+	Category                string  `json:"category"`
+	Tags                    string  `json:"tags"` // comma-separated, per qBittorrent's API
+	UploadLimitKBs          int     `json:"upload_limit_kbs"`
+	DownloadLimitKBs        int     `json:"download_limit_kbs"`
+	RatioLimit              float64 `json:"ratio_limit"`
+	SeedingTimeLimitMinutes int     `json:"seeding_time_limit_minutes"`
+}
+
+// Configured reports whether enough connection detail has been entered to
+// attempt using this download client. URL is the only real signal — Type
+// defaults to qbittorrent out of the box (it's the only option, purely to
+// pre-select it in the UI), so its presence alone doesn't mean the user
+// has actually set anything up.
+func (c DownloadClient) Configured() bool {
+	return c.URL != ""
 }
 
 // SearchFilters is the curated set of MAM search criteria used when

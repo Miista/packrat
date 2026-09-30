@@ -33,6 +33,7 @@ function App() {
     downloadClientPasswordInput: '',
     settingsError: '',
     settingsSaved: false,
+    schedulerError: '',
     pollTimer: null,
 
     async mounted() {
@@ -117,7 +118,13 @@ function App() {
     },
 
     async startSchedule() {
-      await fetch('/api/start', { method: 'POST' });
+      this.schedulerError = '';
+      const res = await fetch('/api/start', { method: 'POST' });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        this.schedulerError = data.error || 'Failed to activate the scheduler.';
+        return;
+      }
       await this.tryLoadState();
     },
 
@@ -127,8 +134,14 @@ function App() {
     },
 
     async runNow() {
+      this.schedulerError = '';
       const endpoint = this.dryRunMode ? '/api/dry-run' : '/api/run';
-      await fetch(endpoint, { method: 'POST' });
+      const res = await fetch(endpoint, { method: 'POST' });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        this.schedulerError = data.error || 'Failed to start the run.';
+        return;
+      }
       await this.tryLoadState();
     },
 

@@ -6,6 +6,7 @@ package scheduler
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -73,8 +74,18 @@ func (s *Scheduler) loop() {
 	}
 }
 
+// ErrNoDownloadClient is returned by StartSchedule and RunNow when no
+// download client has been configured yet — activating or running without
+// one would just fail deep inside the run, once per candidate torrent.
+var ErrNoDownloadClient = errors.New("no download client configured")
+
 // StartSchedule enables the scheduler and arms the next run.
 func (s *Scheduler) StartSchedule() error {
+	var configured bool
+	s.store.View(func(st store.State) { configured = st.Settings.DownloadClient.Configured() })
+	if !configured {
+		return ErrNoDownloadClient
+	}
 	return s.store.Update(func(st *store.State) {
 		delay := time.Duration(st.Settings.NextRunDelayMinutes) * time.Minute
 		next := time.Now().Add(delay)
@@ -102,17 +113,23 @@ func (s *Scheduler) Pause() error {
 }
 
 // RunNow triggers an immediate out-of-band run, unless one is already
-// executing.
-func (s *Scheduler) RunNow() bool {
+// executing or no download client has been configured yet.
+func (s *Scheduler) RunNow() (bool, error) {
+	var configured bool
+	s.store.View(func(st store.State) { configured = st.Settings.DownloadClient.Configured() })
+	if !configured {
+		return false, ErrNoDownloadClient
+	}
+
 	s.mu.Lock()
 	if s.running {
 		s.mu.Unlock()
-		return false
+		return false, nil
 	}
 	s.running = true
 	s.mu.Unlock()
 	go s.runAndReschedule()
-	return true
+	return true, nil
 }
 
 // RunDryNow triggers an immediate, one-off dry run: fetches the real

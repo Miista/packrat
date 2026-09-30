@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/cookiejar"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -23,6 +24,7 @@ type qbittorrentClient struct {
 	baseURL  string
 	username string
 	password string
+	addOpts  store.AddOptions
 
 	http *http.Client
 
@@ -36,6 +38,7 @@ func newQBittorrentClient(cfg store.DownloadClient) *qbittorrentClient {
 		baseURL:  strings.TrimRight(cfg.URL, "/"),
 		username: cfg.Username,
 		password: cfg.Password,
+		addOpts:  cfg.AddOptions,
 		http:     &http.Client{Timeout: 30 * time.Second, Jar: jar},
 	}
 }
@@ -143,6 +146,9 @@ func (c *qbittorrentClient) uploadTorrent(torrentFile []byte, name string) (stat
 	if _, err := part.Write(torrentFile); err != nil {
 		return 0, nil, err
 	}
+	if err := c.writeAddOptionFields(writer); err != nil {
+		return 0, nil, err
+	}
 	if err := writer.Close(); err != nil {
 		return 0, nil, err
 	}
@@ -161,4 +167,39 @@ func (c *qbittorrentClient) uploadTorrent(torrentFile []byte, name string) (stat
 	defer resp.Body.Close()
 	respBody, _ = io.ReadAll(resp.Body)
 	return resp.StatusCode, respBody, nil
+}
+
+// writeAddOptionFields adds the optional qBittorrent /api/v2/torrents/add
+// form fields this app lets the user pin (category, tags, speed/ratio/time
+// limits). Every field is omitted when unset, matching qBittorrent's own
+// "leave at client default" behavior rather than sending an explicit zero,
+// which for the limits below wouldn't mean "no limit" but "the client's
+// current global limit".
+func (c *qbittorrentClient) writeAddOptionFields(writer *multipart.Writer) error {
+	o := c.addOpts
+	fields := map[string]string{}
+	if o.Category != "" {
+		fields["category"] = o.Category
+	}
+	if o.Tags != "" {
+		fields["tags"] = o.Tags
+	}
+	if o.UploadLimitKBs > 0 {
+		fields["upLimit"] = strconv.Itoa(o.UploadLimitKBs * 1024)
+	}
+	if o.DownloadLimitKBs > 0 {
+		fields["dlLimit"] = strconv.Itoa(o.DownloadLimitKBs * 1024)
+	}
+	if o.RatioLimit > 0 {
+		fields["ratioLimit"] = strconv.FormatFloat(o.RatioLimit, 'f', -1, 64)
+	}
+	if o.SeedingTimeLimitMinutes > 0 {
+		fields["seedingTimeLimit"] = strconv.Itoa(o.SeedingTimeLimitMinutes)
+	}
+	for k, v := range fields {
+		if err := writer.WriteField(k, v); err != nil {
+			return err
+		}
+	}
+	return nil
 }
