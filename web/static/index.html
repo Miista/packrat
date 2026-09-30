@@ -91,15 +91,13 @@
         <h2>Run history</h2>
         <div class="table-scroll" v-if="state.history.length">
           <table class="data-table">
-            <thead><tr><th>Started</th><th>Result</th><th>Unsatisfied</th><th>Limit</th><th>Target</th><th>Needed</th><th>Added</th></tr></thead>
+            <thead><tr><th>Started</th><th>Result</th><th>Unsatisfied</th><th>Limit</th><th>Added</th></tr></thead>
             <tbody>
               <tr v-for="h in state.history" :key="h.started_at">
                 <td class="mono dim">{{ formatTime(h.started_at) }}</td>
                 <td><span v-if="h.dry_run" class="locked-caption" style="margin-right:6px;">DRY RUN</span>{{ h.result }}</td>
                 <td>{{ h.unsat_count }}</td>
                 <td>{{ h.unsat_limit }}</td>
-                <td>{{ h.target_count }}</td>
-                <td>{{ h.needed_count }}</td>
                 <td>{{ (h.added_torrents || []).length }}</td>
               </tr>
             </tbody>
