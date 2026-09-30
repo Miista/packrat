@@ -247,19 +247,21 @@ func (s *Scheduler) runOnce(ctx context.Context, dryRun bool) {
 		}
 	}
 
-	// Fetch a page sized exactly to what's still needed, and only ask MAM
-	// for more (advancing startNumber) if that page didn't yield enough
-	// post-filter candidates — rather than guessing a fixed over-fetch
-	// multiplier up front and giving up once it's exhausted. maxPages
-	// bounds this so a genuinely exhausted search (or persistent add
-	// failures) can't loop forever.
+	// Phase 1: collect candidates across as many pages as it takes to reach
+	// `needed`, WITHOUT downloading or adding anything yet. Only once this
+	// phase has run its course (either it collected enough, or genuinely
+	// ran out of search results / hit an error) does phase 2 below start
+	// downloading and adding — so a run never ends up having added a
+	// partial batch just because a later search page came back short or
+	// failed. maxPages bounds phase 1 so an exhausted search can't loop
+	// forever.
 	const maxPages = 10
 	cancelled := false
 	noMoreResults := false
 	searchFailed := false
-	added := make([]store.AddedTorrent, 0, needed)
+	candidates := make([]mamclient.SearchResult, 0, needed)
 
-	for page := 0; page < maxPages && len(added) < needed && !cancelled; page++ {
+	for page := 0; page < maxPages && len(candidates) < needed; page++ {
 		if ctx.Err() != nil {
 			cancelled = true
 			break
@@ -275,7 +277,7 @@ func (s *Scheduler) runOnce(ctx context.Context, dryRun bool) {
 			MaxSizeMB:     cfg.SearchFilters.MaxSizeMB,
 			FreeleechOnly: cfg.SearchFilters.FreeleechOnly,
 			SortType:      cfg.SearchFilters.SortType,
-			PerPage:       needed - len(added),
+			PerPage:       needed - len(candidates),
 			StartNumber:   page * needed,
 		}
 		results, err := mam.Search(filters)
@@ -293,43 +295,48 @@ func (s *Scheduler) runOnce(ctx context.Context, dryRun bool) {
 		}
 
 		for _, res := range results {
-			if len(added) >= needed {
-				break
-			}
-			if ctx.Err() != nil {
-				// Pause() was called mid-run: stop adding further torrents.
-				// The torrent already in flight (if any) already completed
-				// its own request above before this check runs again —
-				// this only prevents starting a *new* one.
-				cancelled = true
+			if len(candidates) >= needed {
 				break
 			}
 			if res.DownloadURL == "" {
 				s.log.Warn().Str("title", res.Title).Msg("search result had no download URL, skipping")
 				continue
 			}
-
-			if dryRun {
-				// Dry run: candidate is a real search result that passed
-				// every filter, but nothing is downloaded or added — just
-				// recorded as what this run would have picked.
-				added = append(added, store.AddedTorrent{ID: res.ID, Title: res.Title, Size: res.SizeBytes})
-				s.log.Info().Str("title", res.Title).Int64("size", res.SizeBytes).Msg("dry run: would add torrent")
-				continue
-			}
-
-			torrentFile, err := mam.DownloadTorrentFile(res.DownloadURL)
-			if err != nil {
-				s.log.Warn().Err(err).Str("title", res.Title).Msg("failed to fetch torrent file, skipping")
-				continue
-			}
-			if err := dlClient.AddTorrent(torrentFile, res.Title); err != nil {
-				s.log.Warn().Err(err).Str("title", res.Title).Msg("failed to add torrent to download client, skipping")
-				continue
-			}
-			added = append(added, store.AddedTorrent{ID: res.ID, Title: res.Title, Size: res.SizeBytes})
-			s.log.Info().Str("title", res.Title).Int64("size", res.SizeBytes).Msg("added torrent")
+			candidates = append(candidates, res)
 		}
+	}
+
+	// Phase 2: only now, with candidates collected (however many phase 1
+	// managed), actually download and add them. Cancellation is checked
+	// here too — Pause() mid-phase-2 still stops before starting a new
+	// add, same as before.
+	added := make([]store.AddedTorrent, 0, len(candidates))
+	for _, res := range candidates {
+		if ctx.Err() != nil {
+			cancelled = true
+			break
+		}
+
+		if dryRun {
+			// Dry run: candidate is a real search result that passed
+			// every filter, but nothing is downloaded or added — just
+			// recorded as what this run would have picked.
+			added = append(added, store.AddedTorrent{ID: res.ID, Title: res.Title, Size: res.SizeBytes})
+			s.log.Info().Str("title", res.Title).Int64("size", res.SizeBytes).Msg("dry run: would add torrent")
+			continue
+		}
+
+		torrentFile, err := mam.DownloadTorrentFile(res.DownloadURL)
+		if err != nil {
+			s.log.Warn().Err(err).Str("title", res.Title).Msg("failed to fetch torrent file, skipping")
+			continue
+		}
+		if err := dlClient.AddTorrent(torrentFile, res.Title); err != nil {
+			s.log.Warn().Err(err).Str("title", res.Title).Msg("failed to add torrent to download client, skipping")
+			continue
+		}
+		added = append(added, store.AddedTorrent{ID: res.ID, Title: res.Title, Size: res.SizeBytes})
+		s.log.Info().Str("title", res.Title).Int64("size", res.SizeBytes).Msg("added torrent")
 	}
 
 	entry.AddedTorrents = added
