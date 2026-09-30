@@ -69,8 +69,18 @@ func main() {
 
 func newLogger() zerolog.Logger {
 	level := zerolog.InfoLevel
-	if lvl, err := zerolog.ParseLevel(os.Getenv("LOG_LEVEL")); err == nil {
-		level = lvl
+	// zerolog.ParseLevel("") returns (zerolog.NoLevel, nil) — no error —
+	// so checking err == nil alone silently replaced the InfoLevel default
+	// with NoLevel whenever LOG_LEVEL was unset (the common case), which
+	// suppressed all leveled log output (.Info()/.Warn()/etc.) with no
+	// error or other symptom — confirmed live, 2026-10-01: the running
+	// container produced zero log lines despite serving requests
+	// correctly. Only apply a parsed level when LOG_LEVEL was actually set
+	// to something.
+	if raw := os.Getenv("LOG_LEVEL"); raw != "" {
+		if lvl, err := zerolog.ParseLevel(raw); err == nil {
+			level = lvl
+		}
 	}
 	return zerolog.New(os.Stdout).
 		Level(level).
