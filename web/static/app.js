@@ -20,7 +20,7 @@ function App() {
       unsat_count: 0,
       unsat_limit: 0,
     },
-    history: {
+    runHistory: {
       entries: [],
       page: 1,
       page_size: 20,
@@ -66,9 +66,9 @@ function App() {
     },
 
     async loadHistory(page) {
-      const res = await fetch(`/api/history?page=${page}&page_size=${this.history.page_size}`);
+      const res = await fetch(`/api/history?page=${page}&page_size=${this.runHistory.page_size}`);
       if (!res.ok) return;
-      this.history = await res.json();
+      this.runHistory = await res.json();
     },
 
     async loadSettings() {
@@ -88,7 +88,7 @@ function App() {
         // completed run shows up there, but jumping the user back to page 1
         // out from under them while they're browsing older pages would be
         // disruptive.
-        if (this.history.page === 1) await this.loadHistory(1);
+        if (this.runHistory.page === 1) await this.loadHistory(1);
       }, 5000);
     },
 
