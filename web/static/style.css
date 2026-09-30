@@ -193,8 +193,13 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 .limit-picker { display: flex; gap: 10px; }
 .limit-picker select { flex: 1 1 0; width: auto; min-width: 0; }
 .limit-picker input[type="number"] { flex: 1 1 0; min-width: 0; }
+.limit-picker input.limit-input-hidden {
+  visibility: hidden;
+  pointer-events: none;
+}
 @media (max-width: 480px) {
   .limit-picker { flex-direction: column; }
+  .limit-picker input.limit-input-hidden { display: none; }
 }
 
 .paired-inputs { display: flex; gap: 10px; }

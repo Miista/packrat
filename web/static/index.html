@@ -257,9 +257,9 @@
                   <option value="unlimited">Unlimited</option>
                   <option value="custom">Custom</option>
                 </select>
-                <input v-show="limitMode(f.key) === 'custom'" type="number"
+                <input type="number" :class="{'limit-input-hidden': limitMode(f.key) !== 'custom'}"
                   v-model.number="settings.values.download_client.add_options[f.key]"
-                  min="0" :step="f.step">
+                  min="0" :step="f.step" :tabindex="limitMode(f.key) === 'custom' ? 0 : -1">
               </div>
               <p class="hint" v-if="f.key === 'seeding_time_limit_minutes' && limitMode(f.key) === 'custom'">
                 {{ minutesAsDuration(settings.values.download_client.add_options[f.key]) }}
