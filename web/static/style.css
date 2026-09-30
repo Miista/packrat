@@ -8,7 +8,6 @@
   --green: #3ecf8e;
   --red: #e5534b;
   --yellow: #d4a72c;
-  --input-bg: #4a5468;
   --input-border: #5c6780;
   --input-text: #ffffff;
   --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
@@ -59,7 +58,7 @@ h2 { font-size: 14px; text-transform: uppercase; letter-spacing: 0.04em; color: 
 .auth-card label { display: flex; flex-direction: column; gap: 6px; font-size: 13px; color: var(--text-dim); }
 
 input[type="text"], input[type="password"], input[type="number"], select {
-  background: var(--input-bg);
+  background: transparent;
   border: 1px solid var(--input-border);
   color: var(--input-text);
   padding: 12px 14px;
@@ -168,7 +167,7 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
   padding: 16px 18px;
   margin-bottom: 16px;
 }
-.settings-form legend { color: var(--text-dim); font-size: 12px; text-transform: uppercase; padding: 0 6px; }
+.settings-form legend { color: var(--text); font-size: 13px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; padding: 0 6px; }
 .step-label {
   font-size: 11px;
   font-weight: 700;
