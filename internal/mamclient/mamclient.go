@@ -127,6 +127,10 @@ type SearchFilters struct {
 	// full list; an empty value means "default".
 	SortType string
 	PerPage  int
+	// StartNumber is MAM's pagination offset ("number of entries to skip").
+	// Used to fetch subsequent pages when a single page doesn't yield
+	// enough post-filter candidates.
+	StartNumber int
 }
 
 // SearchResult is one torrent returned by MAM's search API.
@@ -181,18 +185,30 @@ type searchResponse struct {
 // torrent. This app never sets fl (see DownloadTorrentFile) — MAM's docs
 // warn "no refunds available" for automated use of that flag.
 func (c *Client) Search(f SearchFilters) ([]SearchResult, error) {
-	payload := map[string]any{
-		"tor": map[string]any{
-			"text":       f.Text,
-			"srchIn":     []string{"title"},
-			"searchType": searchTypeFor(f),
-			"main_cat":   []string{}, // empty = all categories
-			"sortType":   sortTypeOrDefault(f.SortType),
-		},
-	}
 	perPage := f.PerPage
 	if perPage <= 0 {
 		perPage = 50
+	}
+
+	// perpage MUST be a top-level field in the JSON body, not a query-string
+	// parameter — confirmed live (2026-09-30): a query-string ?perpage=N is
+	// silently ignored (MAM just returns its own default page size
+	// regardless), despite the docs listing it as if separate from the
+	// tor[...] object in a way that reads as query-string placement. This
+	// was the root cause of a real production bug: every search returned a
+	// fixed default-sized page no matter what was requested, so callers
+	// asking for a tighter page (to then paginate with startNumber) got the
+	// same unbounded page every time.
+	payload := map[string]any{
+		"tor": map[string]any{
+			"text":        f.Text,
+			"srchIn":      []string{"title"},
+			"searchType":  searchTypeFor(f),
+			"main_cat":    []string{}, // empty = all categories
+			"sortType":    sortTypeOrDefault(f.SortType),
+			"startNumber": strconv.Itoa(f.StartNumber),
+		},
+		"perpage": perPage,
 	}
 
 	body, err := json.Marshal(payload)
@@ -200,7 +216,7 @@ func (c *Client) Search(f SearchFilters) ([]SearchResult, error) {
 		return nil, err
 	}
 
-	req, err := http.NewRequest(http.MethodPost, baseURL+"/tor/js/loadSearchJSONbasic.php?perpage="+strconv.Itoa(perPage), bytes.NewReader(body))
+	req, err := http.NewRequest(http.MethodPost, baseURL+"/tor/js/loadSearchJSONbasic.php", bytes.NewReader(body))
 	if err != nil {
 		return nil, err
 	}

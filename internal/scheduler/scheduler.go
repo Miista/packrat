@@ -247,71 +247,89 @@ func (s *Scheduler) runOnce(ctx context.Context, dryRun bool) {
 		}
 	}
 
-	filters := mamclient.SearchFilters{
-		Text:          cfg.SearchFilters.Text,
-		MinSeeders:    cfg.SearchFilters.MinSeeders,
-		MaxSeeders:    cfg.SearchFilters.MaxSeeders,
-		MinLeechers:   cfg.SearchFilters.MinLeechers,
-		MaxLeechers:   cfg.SearchFilters.MaxLeechers,
-		MinSizeMB:     cfg.SearchFilters.MinSizeMB,
-		MaxSizeMB:     cfg.SearchFilters.MaxSizeMB,
-		FreeleechOnly: cfg.SearchFilters.FreeleechOnly,
-		SortType:      cfg.SearchFilters.SortType,
-		PerPage:       needed * 3, // over-fetch to allow for add failures
-	}
-	results, err := mam.Search(filters)
-	if err != nil {
-		entry.Result = fmt.Sprintf("Search failed: %v", err)
-		s.log.Warn().Err(err).Msg(entry.Result)
-		s.appendHistory(entry)
-		return
-	}
-	if len(results) == 0 {
-		entry.Result = "Search returned no candidates matching filters."
-		s.appendHistory(entry)
-		s.log.Warn().Msg(entry.Result)
-		return
-	}
-
+	// Fetch a page sized exactly to what's still needed, and only ask MAM
+	// for more (advancing startNumber) if that page didn't yield enough
+	// post-filter candidates — rather than guessing a fixed over-fetch
+	// multiplier up front and giving up once it's exhausted. maxPages
+	// bounds this so a genuinely exhausted search (or persistent add
+	// failures) can't loop forever.
+	const maxPages = 10
 	cancelled := false
+	noMoreResults := false
+	searchFailed := false
 	added := make([]store.AddedTorrent, 0, needed)
-	for _, res := range results {
-		if len(added) >= needed {
-			break
-		}
+
+	for page := 0; page < maxPages && len(added) < needed && !cancelled; page++ {
 		if ctx.Err() != nil {
-			// Pause() was called mid-run: stop adding further torrents.
-			// The torrent already in flight (if any) already completed
-			// its own request above before this check runs again — this
-			// only prevents starting a *new* one.
 			cancelled = true
 			break
 		}
-		if res.DownloadURL == "" {
-			s.log.Warn().Str("title", res.Title).Msg("search result had no download URL, skipping")
-			continue
-		}
 
-		if dryRun {
-			// Dry run: candidate is a real search result that passed every
-			// filter, but nothing is downloaded or added — just recorded
-			// as what this run would have picked.
-			added = append(added, store.AddedTorrent{ID: res.ID, Title: res.Title, Size: res.SizeBytes})
-			s.log.Info().Str("title", res.Title).Int64("size", res.SizeBytes).Msg("dry run: would add torrent")
-			continue
+		filters := mamclient.SearchFilters{
+			Text:          cfg.SearchFilters.Text,
+			MinSeeders:    cfg.SearchFilters.MinSeeders,
+			MaxSeeders:    cfg.SearchFilters.MaxSeeders,
+			MinLeechers:   cfg.SearchFilters.MinLeechers,
+			MaxLeechers:   cfg.SearchFilters.MaxLeechers,
+			MinSizeMB:     cfg.SearchFilters.MinSizeMB,
+			MaxSizeMB:     cfg.SearchFilters.MaxSizeMB,
+			FreeleechOnly: cfg.SearchFilters.FreeleechOnly,
+			SortType:      cfg.SearchFilters.SortType,
+			PerPage:       needed - len(added),
+			StartNumber:   page * needed,
 		}
-
-		torrentFile, err := mam.DownloadTorrentFile(res.DownloadURL)
+		results, err := mam.Search(filters)
 		if err != nil {
-			s.log.Warn().Err(err).Str("title", res.Title).Msg("failed to fetch torrent file, skipping")
-			continue
+			entry.Result = fmt.Sprintf("Search failed: %v", err)
+			s.log.Warn().Err(err).Msg(entry.Result)
+			searchFailed = true
+			break
 		}
-		if err := dlClient.AddTorrent(torrentFile, res.Title); err != nil {
-			s.log.Warn().Err(err).Str("title", res.Title).Msg("failed to add torrent to download client, skipping")
-			continue
+		if len(results) == 0 {
+			// MAM has nothing more to offer for these filters; further
+			// pages would be empty too.
+			noMoreResults = true
+			break
 		}
-		added = append(added, store.AddedTorrent{ID: res.ID, Title: res.Title, Size: res.SizeBytes})
-		s.log.Info().Str("title", res.Title).Int64("size", res.SizeBytes).Msg("added torrent")
+
+		for _, res := range results {
+			if len(added) >= needed {
+				break
+			}
+			if ctx.Err() != nil {
+				// Pause() was called mid-run: stop adding further torrents.
+				// The torrent already in flight (if any) already completed
+				// its own request above before this check runs again —
+				// this only prevents starting a *new* one.
+				cancelled = true
+				break
+			}
+			if res.DownloadURL == "" {
+				s.log.Warn().Str("title", res.Title).Msg("search result had no download URL, skipping")
+				continue
+			}
+
+			if dryRun {
+				// Dry run: candidate is a real search result that passed
+				// every filter, but nothing is downloaded or added — just
+				// recorded as what this run would have picked.
+				added = append(added, store.AddedTorrent{ID: res.ID, Title: res.Title, Size: res.SizeBytes})
+				s.log.Info().Str("title", res.Title).Int64("size", res.SizeBytes).Msg("dry run: would add torrent")
+				continue
+			}
+
+			torrentFile, err := mam.DownloadTorrentFile(res.DownloadURL)
+			if err != nil {
+				s.log.Warn().Err(err).Str("title", res.Title).Msg("failed to fetch torrent file, skipping")
+				continue
+			}
+			if err := dlClient.AddTorrent(torrentFile, res.Title); err != nil {
+				s.log.Warn().Err(err).Str("title", res.Title).Msg("failed to add torrent to download client, skipping")
+				continue
+			}
+			added = append(added, store.AddedTorrent{ID: res.ID, Title: res.Title, Size: res.SizeBytes})
+			s.log.Info().Str("title", res.Title).Int64("size", res.SizeBytes).Msg("added torrent")
+		}
 	}
 
 	entry.AddedTorrents = added
@@ -322,8 +340,12 @@ func (s *Scheduler) runOnce(ctx context.Context, dryRun bool) {
 	switch {
 	case cancelled:
 		entry.Result = fmt.Sprintf("Stopped: %s %d of %d needed torrents before the scheduler was deactivated.", strings.ToLower(verb), len(added), needed)
+	case searchFailed:
+		entry.Result = fmt.Sprintf("%s %d of %d needed torrents before a search request failed.", verb, len(added), needed)
+	case noMoreResults && len(added) < needed:
+		entry.Result = fmt.Sprintf("%s %d of %d needed torrents — MAM has no more matching candidates for the current filters.", verb, len(added), needed)
 	case len(added) < needed:
-		entry.Result = fmt.Sprintf("%s %d of %d needed torrents (ran out of candidates or hit errors).", verb, len(added), needed)
+		entry.Result = fmt.Sprintf("%s %d of %d needed torrents (hit the page-fetch limit or per-candidate errors).", verb, len(added), needed)
 	default:
 		entry.Result = fmt.Sprintf("%s %d torrents.", verb, len(added))
 	}
