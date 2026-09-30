@@ -3,6 +3,7 @@ function App() {
     view: 'loading', // 'loading' | 'setup' | 'login' | 'app'
     tab: 'dashboard',
     loggedIn: false,
+    dryRunMode: false,
 
     setupForm: { username: '', password: '' },
     setupError: '',
@@ -126,12 +127,8 @@ function App() {
     },
 
     async runNow() {
-      await fetch('/api/run', { method: 'POST' });
-      await this.tryLoadState();
-    },
-
-    async dryRunNow() {
-      await fetch('/api/dry-run', { method: 'POST' });
+      const endpoint = this.dryRunMode ? '/api/dry-run' : '/api/run';
+      await fetch(endpoint, { method: 'POST' });
       await this.tryLoadState();
     },
 
