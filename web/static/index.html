@@ -90,11 +90,11 @@
         </div>
 
         <h2>Run history</h2>
-        <div class="table-scroll" v-if="state.history.length">
+        <div class="table-scroll" v-if="history.entries.length">
           <table class="data-table">
             <thead><tr><th>Started</th><th>Result</th><th>Unsatisfied</th><th>Limit</th><th>Added</th></tr></thead>
             <tbody>
-              <tr v-for="h in state.history" :key="h.started_at">
+              <tr v-for="h in history.entries" :key="h.started_at">
                 <td class="mono dim">{{ formatTime(h.started_at) }}</td>
                 <td><span v-if="h.dry_run" class="locked-caption" style="margin-right:6px;">DRY RUN</span>{{ h.result }}</td>
                 <td>{{ h.unsat_count }}</td>
@@ -105,6 +105,11 @@
           </table>
         </div>
         <p v-else class="dim">No runs yet.</p>
+        <div class="pager" v-if="history.total_pages > 1">
+          <button class="btn-secondary" :disabled="history.page <= 1" @click="loadHistory(history.page - 1)">&laquo; Prev</button>
+          <span class="dim">Page {{ history.page }} of {{ history.total_pages }} ({{ history.total }} runs)</span>
+          <button class="btn-secondary" :disabled="history.page >= history.total_pages" @click="loadHistory(history.page + 1)">Next &raquo;</button>
+        </div>
       </div>
 
       <div v-if="tab === 'settings'">

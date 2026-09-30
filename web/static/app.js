@@ -12,7 +12,6 @@ function App() {
 
     state: {
       totals: { cumulative_torrents_added: 0, cumulative_runs: 0 },
-      history: [],
       scheduler_enabled: false,
       paused: false,
       running: false,
@@ -20,6 +19,13 @@ function App() {
       have_unsat: false,
       unsat_count: 0,
       unsat_limit: 0,
+    },
+    history: {
+      entries: [],
+      page: 1,
+      page_size: 20,
+      total: 0,
+      total_pages: 1,
     },
     settings: {
       values: {
@@ -55,7 +61,14 @@ function App() {
       this.state = await res.json();
       this.loggedIn = true;
       await this.loadSettings();
+      await this.loadHistory(1);
       return true;
+    },
+
+    async loadHistory(page) {
+      const res = await fetch(`/api/history?page=${page}&page_size=${this.history.page_size}`);
+      if (!res.ok) return;
+      this.history = await res.json();
     },
 
     async loadSettings() {
@@ -71,6 +84,11 @@ function App() {
       this.pollTimer = setInterval(async () => {
         const res = await fetch('/api/state');
         if (res.ok) this.state = await res.json();
+        // Only auto-refresh history while sitting on the first page — a
+        // completed run shows up there, but jumping the user back to page 1
+        // out from under them while they're browsing older pages would be
+        // disruptive.
+        if (this.history.page === 1) await this.loadHistory(1);
       }, 5000);
     },
 

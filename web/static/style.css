@@ -160,6 +160,15 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 .data-table th, .data-table td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border); }
 .data-table th { color: var(--text-dim); font-weight: 600; text-transform: uppercase; font-size: 11px; }
 
+.pager {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  margin-top: 12px;
+  font-size: 13px;
+}
+
 /* Settings form */
 .settings-form fieldset {
   background: var(--bg-elevated);

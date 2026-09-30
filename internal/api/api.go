@@ -8,6 +8,7 @@ import (
 	"errors"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 
 	"github.com/rs/zerolog"
@@ -45,6 +46,7 @@ func (s *Server) Routes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/login", s.handleLogin)
 	mux.HandleFunc("/api/logout", s.guarded(s.handleLogout))
 	mux.HandleFunc("/api/state", s.guarded(s.handleState))
+	mux.HandleFunc("/api/history", s.guarded(s.handleHistory))
 	mux.HandleFunc("/api/settings", s.guarded(s.handleSettings))
 	mux.HandleFunc("/api/start", s.guarded(s.csrfGuard(s.handleStart)))
 	mux.HandleFunc("/api/pause", s.guarded(s.csrfGuard(s.handlePause)))
@@ -138,6 +140,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.auth.SetSessionCookie(w, r, token)
+	s.scheduler.RefreshUnsat()
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
@@ -156,7 +159,6 @@ func (s *Server) handleState(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"settings":          publicSettings(resolved),
 		"totals":            st.Totals,
-		"history":           reversed(st.History),
 		"scheduler_enabled": st.SchedulerOn,
 		"paused":            st.Paused,
 		"running":           s.scheduler.IsRunning(),
@@ -164,6 +166,44 @@ func (s *Server) handleState(w http.ResponseWriter, r *http.Request) {
 		"unsat_count":       unsat.Count,
 		"unsat_limit":       unsat.Limit,
 		"have_unsat":        haveUnsat,
+	})
+}
+
+const defaultHistoryPageSize = 20
+
+// handleHistory returns one page of run history, newest first. Kept as its
+// own endpoint (rather than embedded in /api/state, which is polled
+// continuously) so a growing history never bloats every poll response —
+// only the page actually being viewed is fetched.
+func (s *Server) handleHistory(w http.ResponseWriter, r *http.Request) {
+	page, _ := strconv.Atoi(r.URL.Query().Get("page"))
+	if page < 1 {
+		page = 1
+	}
+	pageSize, _ := strconv.Atoi(r.URL.Query().Get("page_size"))
+	if pageSize <= 0 {
+		pageSize = defaultHistoryPageSize
+	}
+
+	var all []store.HistoryEntry
+	s.store.View(func(state store.State) { all = reversed(state.History) })
+
+	total := len(all)
+	start := (page - 1) * pageSize
+	if start > total {
+		start = total
+	}
+	end := start + pageSize
+	if end > total {
+		end = total
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"entries":     all[start:end],
+		"page":        page,
+		"page_size":   pageSize,
+		"total":       total,
+		"total_pages": (total + pageSize - 1) / pageSize,
 	})
 }
 
@@ -186,6 +226,7 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 	}
 
 	unsat, haveUnsat := s.scheduler.UnsatStatus()
+	_, mamIDChanged := incoming["mam_id"]
 
 	err := s.store.Update(func(st *store.State) {
 		applySettingsPatch(&st.Settings, incoming, unsat.Limit, haveUnsat)
@@ -193,6 +234,9 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
+	}
+	if mamIDChanged {
+		s.scheduler.RefreshUnsat()
 	}
 	var st store.State
 	s.store.View(func(state store.State) { st = state })

@@ -48,6 +48,30 @@ func New(st *store.Store, log zerolog.Logger) *Scheduler {
 // Start begins the background polling loop. Call once at startup.
 func (s *Scheduler) Start() {
 	go s.loop()
+	s.RefreshUnsat()
+}
+
+// RefreshUnsat does a single read-only unsat-status check against MAM —
+// no search, no adding, no history entry — so the dashboard has real
+// numbers to show immediately (on app startup, and right after login)
+// instead of "—" until the scheduler's first actual run completes, which
+// might be minutes or hours away (or never, while paused).
+func (s *Scheduler) RefreshUnsat() {
+	go func() {
+		var cfg store.Settings
+		s.store.View(func(st store.State) {
+			cfg = settings.Resolve(st.Settings).Settings
+		})
+		if cfg.MamID == "" {
+			return
+		}
+		mam := mamclient.New(mamclient.Secret(cfg.MamID))
+		unsat, err := mam.UnsatStatus()
+		if err != nil {
+			return
+		}
+		s.recordUnsat(unsat)
+	}()
 }
 
 func (s *Scheduler) loop() {
