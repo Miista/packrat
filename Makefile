@@ -10,10 +10,10 @@ all: build
 ARCH ?= $(shell go env GOARCH)
 
 build:
-	CGO_ENABLED=0 GOOS=linux GOARCH=$(ARCH) go build -trimpath -ldflags="-s -w" -o mam-ratio .
+	CGO_ENABLED=0 GOOS=linux GOARCH=$(ARCH) go build -trimpath -ldflags="-s -w" -o packrat .
 
 docker: build
-	docker build -t mam-ratio:local .
+	docker build -t packrat:local .
 
 clean:
-	rm -f mam-ratio
+	rm -f packrat

@@ -1,25 +1,25 @@
 services:
-  mam-ratio:
-    image: mam-ratio:local
-    container_name: mam-ratio
+  packrat:
+    image: packrat:local
+    container_name: packrat
     build: .
     # Dashboard is published on the host. It's protected by the built-in
     # admin login (first-launch setup) — so this is safe to expose directly.
     # If you'd rather front it with a reverse proxy (Caddy/Authelia) instead,
     # remove this ports block and reach it over the Docker network as
-    # mam-ratio:8766.
+    # packrat:8766.
     ports:
       - "8766:8766"
     volumes:
       - ./data:/app/data
     environment:
-      MAMRATIO_ADDR: "0.0.0.0:8766"
-      MAMRATIO_DATA_DIR: "/app/data"
+      PACKRAT_ADDR: "0.0.0.0:8766"
+      PACKRAT_DATA_DIR: "/app/data"
       # Recommended: pin the MAM session cookie via env var so it never
       # touches disk. The UI will show this field locked once set.
-      # MAMRATIO_SETTING_MAM_ID: "your_mam_id_cookie_value"
+      # PACKRAT_SETTING_MAM_ID: "your_mam_id_cookie_value"
       #
       # Only set this if you are intentionally running with no auth layer
       # at all (e.g. strictly loopback-bound, single-user host):
-      # MAMRATIO_AUTH_DISABLED: "true"
+      # PACKRAT_AUTH_DISABLED: "true"
     restart: unless-stopped

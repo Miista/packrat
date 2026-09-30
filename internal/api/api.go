@@ -1,4 +1,4 @@
-// Package api implements the HTTP handlers for mam-ratio: first-launch
+// Package api implements the HTTP handlers for packrat: first-launch
 // admin setup, login/logout, settings (with env-override reporting), and
 // scheduler control.
 package api
@@ -12,10 +12,10 @@ import (
 
 	"github.com/rs/zerolog"
 
-	"github.com/miista/mam-ratio/internal/auth"
-	"github.com/miista/mam-ratio/internal/scheduler"
-	"github.com/miista/mam-ratio/internal/settings"
-	"github.com/miista/mam-ratio/internal/store"
+	"github.com/miista/packrat/internal/auth"
+	"github.com/miista/packrat/internal/scheduler"
+	"github.com/miista/packrat/internal/settings"
+	"github.com/miista/packrat/internal/store"
 )
 
 // Server wires the store, auth manager, and scheduler into HTTP handlers.

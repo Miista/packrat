@@ -14,10 +14,10 @@ import (
 
 	"github.com/rs/zerolog"
 
-	"github.com/miista/mam-ratio/internal/downloadclient"
-	"github.com/miista/mam-ratio/internal/mamclient"
-	"github.com/miista/mam-ratio/internal/settings"
-	"github.com/miista/mam-ratio/internal/store"
+	"github.com/miista/packrat/internal/downloadclient"
+	"github.com/miista/packrat/internal/mamclient"
+	"github.com/miista/packrat/internal/settings"
+	"github.com/miista/packrat/internal/store"
 )
 
 const pollInterval = 5 * time.Second

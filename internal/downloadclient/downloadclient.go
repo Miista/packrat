@@ -6,7 +6,7 @@ package downloadclient
 import (
 	"fmt"
 
-	"github.com/miista/mam-ratio/internal/store"
+	"github.com/miista/packrat/internal/store"
 )
 
 // Client adds torrents to a download client backend.

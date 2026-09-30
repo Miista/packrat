@@ -1,5 +1,5 @@
 // Package settings implements the env-var override convention: any setting
-// may be pinned via a MAMRATIO_SETTING_<KEY> environment variable, which
+// may be pinned via a PACKRAT_SETTING_<KEY> environment variable, which
 // then takes precedence over the persisted value and is reported to the UI
 // as "env managed" so it can be rendered read-only.
 package settings
@@ -9,10 +9,10 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/miista/mam-ratio/internal/store"
+	"github.com/miista/packrat/internal/store"
 )
 
-const envPrefix = "MAMRATIO_SETTING_"
+const envPrefix = "PACKRAT_SETTING_"
 
 // Field describes one overridable setting.
 type Field struct {
@@ -97,9 +97,9 @@ func parseInt(v string, fallback int) int {
 	return n
 }
 
-// AuthDisabled reports whether MAMRATIO_AUTH_DISABLED is set truthily.
+// AuthDisabled reports whether PACKRAT_AUTH_DISABLED is set truthily.
 func AuthDisabled() bool {
-	v, ok := os.LookupEnv("MAMRATIO_AUTH_DISABLED")
+	v, ok := os.LookupEnv("PACKRAT_AUTH_DISABLED")
 	if !ok {
 		return false
 	}

@@ -1,4 +1,4 @@
-module github.com/miista/mam-ratio
+module github.com/miista/packrat
 
 go 1.27.0
 

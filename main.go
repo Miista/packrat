@@ -1,4 +1,4 @@
-// Command mam-ratio automates topping up a MyAnonamouse account's number of
+// Command packrat automates topping up a MyAnonamouse account's number of
 // unsatisfied/downloading torrents to a target (the account's rank-based
 // limit minus a configurable reserve), searching MAM and adding matching
 // torrents to a configured download client. Behind a first-launch admin
@@ -14,24 +14,24 @@ import (
 
 	"github.com/rs/zerolog"
 
-	"github.com/miista/mam-ratio/internal/api"
-	"github.com/miista/mam-ratio/internal/auth"
-	"github.com/miista/mam-ratio/internal/scheduler"
-	"github.com/miista/mam-ratio/internal/store"
+	"github.com/miista/packrat/internal/api"
+	"github.com/miista/packrat/internal/auth"
+	"github.com/miista/packrat/internal/scheduler"
+	"github.com/miista/packrat/internal/store"
 )
 
 func main() {
 	log := newLogger()
 
-	dataDir := os.Getenv("MAMRATIO_DATA_DIR")
+	dataDir := os.Getenv("PACKRAT_DATA_DIR")
 	if dataDir == "" {
 		dataDir = "/app/data"
 	}
-	addr := os.Getenv("MAMRATIO_ADDR")
+	addr := os.Getenv("PACKRAT_ADDR")
 	if addr == "" {
 		addr = "127.0.0.1:8766"
 	}
-	staticDir := os.Getenv("MAMRATIO_STATIC_DIR")
+	staticDir := os.Getenv("PACKRAT_STATIC_DIR")
 	if staticDir == "" {
 		staticDir = "web/static"
 	}
@@ -55,7 +55,7 @@ func main() {
 	server.Routes(mux)
 	mux.Handle("/", http.FileServer(http.Dir(staticDir)))
 
-	log.Info().Str("addr", addr).Str("data_dir", dataDir).Str("static_dir", staticDir).Msg("starting mam-ratio")
+	log.Info().Str("addr", addr).Str("data_dir", dataDir).Str("static_dir", staticDir).Msg("starting packrat")
 
 	httpServer := &http.Server{
 		Addr:              addr,

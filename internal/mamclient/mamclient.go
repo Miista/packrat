@@ -16,7 +16,7 @@ import (
 
 const (
 	baseURL   = "https://www.myanonamouse.net"
-	userAgent = "mam-ratio-go"
+	userAgent = "packrat-go"
 )
 
 // Client makes authenticated requests to MAM using the mam_id session

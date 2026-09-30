@@ -17,11 +17,11 @@ import (
 
 	"golang.org/x/crypto/bcrypt"
 
-	"github.com/miista/mam-ratio/internal/store"
+	"github.com/miista/packrat/internal/store"
 )
 
 const (
-	sessionCookieName = "mamratio_session"
+	sessionCookieName = "packrat_session"
 	sessionTTL        = 30 * 24 * time.Hour
 )
 
@@ -95,7 +95,7 @@ func (m *Manager) persistSessionsLocked() {
 	})
 }
 
-// Disabled reports whether auth is disabled via MAMRATIO_AUTH_DISABLED.
+// Disabled reports whether auth is disabled via PACKRAT_AUTH_DISABLED.
 // Callers should check this before enforcing RequireSession.
 func (m *Manager) HasAdmin() bool {
 	has := false

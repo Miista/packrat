@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>mam-ratio</title>
+<title>packrat</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <link rel="stylesheet" href="style.css">
 </head>
@@ -11,7 +11,7 @@
 <div id="app" v-scope="App()" @vue:mounted="mounted">
 
   <header class="topbar">
-    <div class="brand">mam-ratio</div>
+    <div class="brand">packrat</div>
     <button v-if="loggedIn" class="link-btn" @click="logout">Log out</button>
   </header>
 
@@ -19,7 +19,7 @@
     <!-- First-launch admin setup -->
     <section v-if="view === 'setup'" class="auth-card">
       <h1>Create admin account</h1>
-      <p class="dim">This is a one-time setup. Choose credentials to protect mam-ratio's dashboard and API.</p>
+      <p class="dim">This is a one-time setup. Choose credentials to protect packrat's dashboard and API.</p>
       <form @submit.prevent="submitSetup">
         <label>Username<input type="text" v-model="setupForm.username" required autocomplete="username"></label>
         <label>Password<input v-model="setupForm.password" type="password" minlength="8" required autocomplete="new-password"></label>
@@ -127,7 +127,7 @@
             <div class="field-row" v-else>
               <label>Mam Session_ID</label>
               <input type="password" v-model="mamIdInput" :placeholder="settings.values.mam_id || 'Paste your mam_id cookie value'">
-              <p class="hint">Prefer setting <code>MAMRATIO_SETTING_MAM_ID</code> as an environment variable instead — it avoids storing the cookie on disk at all.</p>
+              <p class="hint">Prefer setting <code>PACKRAT_SETTING_MAM_ID</code> as an environment variable instead — it avoids storing the cookie on disk at all.</p>
             </div>
           </fieldset>
 
@@ -212,7 +212,7 @@
             </div>
             <div class="field-row">
               <label>Tags</label>
-              <input type="text" v-model="settings.values.download_client.add_options.tags" placeholder="Comma-separated, e.g. mam-ratio,auto">
+              <input type="text" v-model="settings.values.download_client.add_options.tags" placeholder="Comma-separated, e.g. packrat,auto">
             </div>
             <div class="field-row" v-for="f in [
               {key:'upload_limit_kbs', label:'Upload limit (KB/s, 0 = client default)'},

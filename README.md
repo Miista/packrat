@@ -1,4 +1,4 @@
-# mam-ratio
+# packrat
 
 *Working name — not final.*
 
@@ -9,7 +9,7 @@ and adding them to a download client. Only qBittorrent is supported.
 
 Sibling project to [AutoMouse](../automouse) (MAM bonus-point spending) —
 same conventions: Go, zerolog, first-launch admin auth with persistent
-sessions, `MAMRATIO_SETTING_<KEY>` env-var overrides with a locked-field UI,
+sessions, `PACKRAT_SETTING_<KEY>` env-var overrides with a locked-field UI,
 petite-vue frontend, scratch Docker image.
 
 ## How the target works
@@ -82,16 +82,16 @@ docker compose up -d
 Or without Docker:
 
 ```sh
-go build -o mam-ratio .
-MAMRATIO_ADDR=127.0.0.1:8766 MAMRATIO_DATA_DIR=./data ./mam-ratio
+go build -o packrat .
+PACKRAT_ADDR=127.0.0.1:8766 PACKRAT_DATA_DIR=./data ./packrat
 ```
 
 ## Environment variables
 
-- `MAMRATIO_ADDR` — listen address (default `127.0.0.1:8766`).
-- `MAMRATIO_DATA_DIR` — where `config.json` is persisted (default `/app/data`).
-- `MAMRATIO_AUTH_DISABLED=true` — disables the admin login entirely.
-- `MAMRATIO_SETTING_<KEY>` — env-var overrides for `mam_id`, `reserve`,
+- `PACKRAT_ADDR` — listen address (default `127.0.0.1:8766`).
+- `PACKRAT_DATA_DIR` — where `config.json` is persisted (default `/app/data`).
+- `PACKRAT_AUTH_DISABLED=true` — disables the admin login entirely.
+- `PACKRAT_SETTING_<KEY>` — env-var overrides for `mam_id`, `reserve`,
   `next_run_delay_minutes`. Search filters and download client config are
   not yet env-overridable (only settable via the UI).
 - `LOG_LEVEL` — zerolog level (default `info`).

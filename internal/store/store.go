@@ -1,4 +1,4 @@
-// Package store persists mam-ratio's full application state to a single
+// Package store persists packrat's full application state to a single
 // JSON file under a data directory. All writes go through Save, which
 // rewrites the whole file with 0600 permissions since it may contain a
 // secret (the MAM session cookie, if entered via the UI rather than env

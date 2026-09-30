@@ -5,8 +5,8 @@ RUN apk add --no-cache ca-certificates
 
 FROM scratch
 COPY --from=certs /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
-COPY mam-ratio /mam-ratio
+COPY packrat /packrat
 COPY web/static /web/static
 WORKDIR /
 EXPOSE 8766
-ENTRYPOINT ["/mam-ratio"]
+ENTRYPOINT ["/packrat"]

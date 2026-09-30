@@ -13,7 +13,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/miista/mam-ratio/internal/store"
+	"github.com/miista/packrat/internal/store"
 )
 
 // qbittorrentClient talks to qBittorrent's WebUI API (v2). Auth is
