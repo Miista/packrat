@@ -233,12 +233,18 @@
               <label>Tags</label>
               <input type="text" v-model="settings.values.download_client.add_options.tags" placeholder="Comma-separated, e.g. packrat,auto">
             </div>
-            <div class="field-row" v-for="f in [
-              {key:'upload_limit_kbs', label:'Upload limit (KB/s, 0 = client default)', min:0},
-              {key:'download_limit_kbs', label:'Download limit (KB/s, 0 = client default)', min:0},
-            ]" :key="f.key">
-              <label>{{ f.label }}</label>
-              <input type="number" v-model.number="settings.values.download_client.add_options[f.key]" :min="f.min">
+            <div class="field-row paired-row">
+              <label>Speed limits (KB/s, 0 = client default)</label>
+              <div class="paired-inputs">
+                <div class="paired-input">
+                  <input type="number" v-model.number="settings.values.download_client.add_options.upload_limit_kbs" min="0">
+                  <span class="paired-input-caption">Upload</span>
+                </div>
+                <div class="paired-input">
+                  <input type="number" v-model.number="settings.values.download_client.add_options.download_limit_kbs" min="0">
+                  <span class="paired-input-caption">Download</span>
+                </div>
+              </div>
             </div>
             <div class="field-row" v-for="f in [
               {key:'ratio_limit', label:'Ratio limit', step:0.1},
