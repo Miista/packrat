@@ -246,6 +246,10 @@ func (c *Client) Search(f SearchFilters) ([]SearchResult, error) {
 			continue
 		}
 
+		// DO NOT add "&fl" here. Per MAM's own docs, fl is presence-triggered
+		// (any request carrying the parameter fires it, regardless of
+		// value) and spends a freeleech wedge unconditionally — including
+		// on VIP torrents, with no refund. This app never sets it.
 		downloadURL := fmt.Sprintf("%s/tor/download.php?tid=%s", baseURL, item.ID.String())
 
 		results = append(results, SearchResult{
