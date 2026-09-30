@@ -91,6 +91,15 @@ func DefaultSettings() Settings {
 		},
 		DownloadClient: DownloadClient{
 			Type: ClientQBittorrent,
+			// Ratio/seeding-time limit default to -1 (qBittorrent's own "no
+			// limit, seed forever" sentinel) rather than 0 (client default)
+			// — packrat exists to build ratio, so torrents it adds
+			// shouldn't stop seeding on their own unless the user opts into
+			// a limit explicitly.
+			AddOptions: AddOptions{
+				RatioLimit:              -1,
+				SeedingTimeLimitMinutes: -1,
+			},
 		},
 	}
 }
