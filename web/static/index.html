@@ -167,16 +167,22 @@
               <label>Keyword (optional)</label>
               <input type="text" v-model="settings.values.search_filters.text" placeholder="Leave blank to match any title">
             </div>
-            <div class="field-row" v-for="f in [
-              {key:'min_seeders', label:'Minimum seeders'},
-              {key:'max_seeders', label:'Maximum seeders (0 = no max)'},
-              {key:'min_leechers', label:'Minimum leechers'},
-              {key:'max_leechers', label:'Maximum leechers (0 = no max)'},
-              {key:'min_size_mb', label:'Minimum size (MiB)'},
-              {key:'max_size_mb', label:'Maximum size (MiB, 0 = no max)'},
-            ]" :key="f.key">
-              <label>{{ f.label }}</label>
-              <input type="number" v-model.number="settings.values.search_filters[f.key]" min="0">
+            <div class="field-row paired-row" v-for="pair in [
+              {label:'Seeders', minKey:'min_seeders', maxKey:'max_seeders'},
+              {label:'Leechers', minKey:'min_leechers', maxKey:'max_leechers'},
+              {label:'Size (MiB)', minKey:'min_size_mb', maxKey:'max_size_mb'},
+            ]" :key="pair.label">
+              <label>{{ pair.label }}</label>
+              <div class="paired-inputs">
+                <div class="paired-input">
+                  <input type="number" v-model.number="settings.values.search_filters[pair.minKey]" min="0" placeholder="Min">
+                  <span class="paired-input-caption">Min</span>
+                </div>
+                <div class="paired-input">
+                  <input type="number" v-model.number="settings.values.search_filters[pair.maxKey]" min="0" placeholder="Max">
+                  <span class="paired-input-caption">Max (0 = no max)</span>
+                </div>
+              </div>
             </div>
             <div class="field-row">
               <label class="checkbox-label">
@@ -245,7 +251,7 @@
                   <option value="unlimited">Unlimited</option>
                   <option value="custom">Custom</option>
                 </select>
-                <input v-if="limitMode(f.key) === 'custom'" type="number"
+                <input v-show="limitMode(f.key) === 'custom'" type="number"
                   v-model.number="settings.values.download_client.add_options[f.key]"
                   min="0" :step="f.step">
               </div>
