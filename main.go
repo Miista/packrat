@@ -67,6 +67,10 @@ func main() {
 	}
 }
 
+// newLogger builds the process-wide zerolog.Logger using ConsoleWriter —
+// the same colored, human-readable format used elsewhere in this stack
+// (tagbrr, reaparr, diun: "TIME | LEVEL | message key=value ..."), instead
+// of raw JSON lines. Level is configurable via LOG_LEVEL.
 func newLogger() zerolog.Logger {
 	level := zerolog.InfoLevel
 	// zerolog.ParseLevel("") returns (zerolog.NoLevel, nil) — no error —
@@ -82,7 +86,13 @@ func newLogger() zerolog.Logger {
 			level = lvl
 		}
 	}
-	return zerolog.New(os.Stdout).
+	writer := zerolog.ConsoleWriter{
+		Out:        os.Stdout,
+		TimeFormat: "15:04:05",
+		// Colors forced on: docker logs / Dozzle render ANSI fine,
+		// matching the rest of the stack.
+	}
+	return zerolog.New(writer).
 		Level(level).
 		With().
 		Timestamp().
