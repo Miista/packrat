@@ -8,9 +8,9 @@
   --green: #3ecf8e;
   --red: #e5534b;
   --yellow: #d4a72c;
-  --input-bg: #3b4252;
-  --input-border: #4b5468;
-  --input-text: #f5f6f8;
+  --input-bg: #4a5468;
+  --input-border: #5c6780;
+  --input-text: #ffffff;
   --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
@@ -162,6 +162,7 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 
 /* Settings form */
 .settings-form fieldset {
+  background: var(--bg-elevated);
   border: 1px solid var(--border);
   border-radius: 8px;
   padding: 16px 18px;
