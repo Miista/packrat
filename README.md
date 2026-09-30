@@ -28,20 +28,38 @@ adds up to `min(needed, max_add_per_run)` matching torrents.
 
 ## Status
 
-Early scaffold. Built and verified to compile/run/serve, but the following
-are NOT yet verified against real MAM/download-client behavior:
+Early scaffold. Verified against real MAM data (not just compiled):
+search, result parsing (title/size/seeders/leechers/freeleech), and
+downloading an actual valid `.torrent` file all confirmed working live
+(2026-09-30). Along the way, MAM's own API docs turned out to disagree with
+reality in several places — corrected in `internal/mamclient/mamclient.go`,
+each with a comment explaining the discrepancy:
 
-- **Freeleech search flag**: the `browseFlags` value used for
-  freeleech-only filtering (`internal/mamclient/mamclient.go`) is a
-  placeholder, not confirmed against a real MAM response. Do not trust the
-  "Freeleech only" filter until this is checked.
+- `size` is a human-formatted string (`"528.3 MiB"`), not a raw byte count
+  as MAM's docs example implies. Parsed via `parseSizeString`.
+- `id`, `seeders`, `leechers`, `free`, `fl_vip` are real JSON numbers, not
+  strings.
+- The title field is `title`, not `name` as MAM's own worked example
+  showed.
+- When `dlLink=true` is requested, the `dl` field already includes its own
+  `?tid=...` suffix — appending another one (as MAM's prose docs describe)
+  produces a broken doubled-up URL. Do not re-append `tid`.
+- The search API has **no server-side min/max seeders/leechers/size
+  parameters** — MAM's docs only support text/category/searchType/sort
+  filtering server-side. Those four filters are applied **client-side**,
+  as a post-filter over search results (`passesFilters`).
+
+Still not verified / not implemented:
+
 - **qui download client**: not implemented at all — `internal/downloadclient/qui.go`
-  is a stub that always errors. Only qBittorrent's WebUI API is wired up
-  (and that itself hasn't been tested against a real qBittorrent instance
-  yet, only written against its documented API contract).
-- No end-to-end test has been run against the real MAM search API or a
-  real download client — only the app's own HTTP layer (auth, settings,
-  scheduler state) has been smoke-tested.
+  is a stub that always errors. Only qBittorrent's WebUI API is wired up.
+- **qBittorrent's add-torrent path itself** hasn't been tested against a
+  real qBittorrent instance yet, only written against its documented API
+  contract.
+- The full scheduler run loop (search → download → add to client → record
+  history) hasn't been exercised end-to-end yet — only its individual
+  pieces (MAM search/download, the app's own HTTP layer) have been
+  verified in isolation.
 
 ## Running
 

@@ -3,12 +3,14 @@
 package mamclient
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -103,7 +105,14 @@ func (c *Client) UnsatStatus() (UnsatStatus, error) {
 	return UnsatStatus{}, fmt.Errorf("mam response did not include an unsat field")
 }
 
-// SearchFilters is the set of criteria sent to MAM's search endpoint.
+// SearchFilters is the set of criteria used to find top-up candidates.
+//
+// Per MAM's official search API documentation, the server side only
+// supports text/category/searchType/sort filtering — there is no
+// server-side min/max seeders, leechers, or size parameter. MinSeeders,
+// MaxSeeders, MinLeechers, MaxLeechers, MinSizeMB, and MaxSizeMB are
+// therefore applied CLIENT-SIDE, as a post-filter over the search
+// response, not sent to MAM at all.
 type SearchFilters struct {
 	Text          string
 	MinSeeders    int
@@ -113,8 +122,11 @@ type SearchFilters struct {
 	MinSizeMB     int
 	MaxSizeMB     int // 0 = unset
 	FreeleechOnly bool
-	SortType      string
-	PerPage       int
+	// SortType is one of MAM's real sort enum values, e.g. "seedersDesc",
+	// "sizeAsc", "dateDesc", "default". See MAM's search API docs for the
+	// full list; an empty value means "default".
+	SortType string
+	PerPage  int
 }
 
 // SearchResult is one torrent returned by MAM's search API.
@@ -128,10 +140,19 @@ type SearchResult struct {
 	DownloadURL string
 }
 
+// searchResponseItem models MAM's real response shape, confirmed against a
+// live call (2026-09-30) — this differs from both MAM's own docs table and
+// its worked example, which disagree with each other and with reality:
+//   - id, seeders, leechers, free, fl_vip are genuine JSON numbers.
+//   - size is a human-formatted string, e.g. "528.3 MiB" or "211.9 KiB" —
+//     NOT a raw byte count despite what MAM's docs example shows
+//     ("size": "6324306932"). Must be parsed with parseSizeString.
+//   - the title field is actually named "title", not "name" as MAM's own
+//     worked example implied.
 type searchResponseItem struct {
 	ID       json.Number `json:"id"`
 	Title    string      `json:"title"`
-	Size     json.Number `json:"size"`
+	Size     string      `json:"size"`
 	Seeders  json.Number `json:"seeders"`
 	Leechers json.Number `json:"leechers"`
 	Free     json.Number `json:"free"`
@@ -144,93 +165,180 @@ type searchResponse struct {
 }
 
 // Search queries MAM's torrent search API and returns matching results,
-// each with a ready-to-download URL.
+// each with a ready-to-download URL, already filtered by the seeders/
+// leechers/size criteria in f (applied client-side — see SearchFilters).
 //
-// The download URL is NOT simply the "dl" field from the response — it
-// must be built as /tor/download.php/{dl} with the torrent's id
-// re-appended as a "tid" query parameter, or MAM 403s with "Invalid
-// download link: missing tid" (confirmed against a working reference
-// implementation, not guessed).
+// The download URL is built as /tor/download.php/{dl}. When the request
+// sets dlLink=true (as this method does), the "dl" field already includes
+// its own "?tid=..." suffix — confirmed against a live response
+// (2026-09-30): "dl": "...longhash...?tid=1273225". MAM's own docs
+// describe appending a separate "?tid=#", which would double it up into
+// "?tid=X?tid=X"; do NOT re-append tid here.
 func (c *Client) Search(f SearchFilters) ([]SearchResult, error) {
-	q := url.Values{}
-	if f.Text != "" {
-		q.Set("tor[text]", f.Text)
+	payload := map[string]any{
+		"tor": map[string]any{
+			"text":       f.Text,
+			"srchIn":     []string{"title"},
+			"searchType": searchTypeFor(f),
+			"main_cat":   []string{}, // empty = all categories
+			"sortType":   sortTypeOrDefault(f.SortType),
+		},
+		"dlLink": "true",
 	}
-	if f.MinSeeders > 0 {
-		q.Set("tor[minSeeders]", strconv.Itoa(f.MinSeeders))
-	}
-	if f.MaxSeeders > 0 {
-		q.Set("tor[maxSeeders]", strconv.Itoa(f.MaxSeeders))
-	}
-	if f.MinLeechers > 0 {
-		q.Set("tor[minLeechers]", strconv.Itoa(f.MinLeechers))
-	}
-	if f.MaxLeechers > 0 {
-		q.Set("tor[maxLeechers]", strconv.Itoa(f.MaxLeechers))
-	}
-	if f.MinSizeMB > 0 {
-		q.Set("tor[minSize]", strconv.Itoa(f.MinSizeMB))
-		q.Set("tor[unit]", "MB")
-	}
-	if f.MaxSizeMB > 0 {
-		q.Set("tor[maxSize]", strconv.Itoa(f.MaxSizeMB))
-		q.Set("tor[unit]", "MB")
-	}
-	if f.FreeleechOnly {
-		// TODO(unverified): flag id "3" for freeleech is a placeholder, not
-		// confirmed against MAM's real browseFlags values — research only
-		// established that browseFlags is the right *mechanism* (an array
-		// of flag IDs + a show/hide toggle), not which ID means freeleech.
-		// Verify this against a real search response (or MAM's own search
-		// form HTML/JS) before relying on it — do not treat this as correct.
-		q.Set("tor[browseFlags][]", "3")
-		q.Set("tor[browseFlagsHideVsShow]", "0")
-	}
-	sortType := f.SortType
-	if sortType == "" {
-		sortType = "default"
-	}
-	q.Set("tor[sortType]", sortType)
 	perPage := f.PerPage
 	if perPage <= 0 {
 		perPage = 50
 	}
-	q.Set("perpage", strconv.Itoa(perPage))
-	q.Set("dlLink", "true")
 
-	body, err := c.get("/tor/js/loadSearchJSONbasic.php?" + q.Encode())
+	body, err := json.Marshal(payload)
 	if err != nil {
 		return nil, err
 	}
+
+	req, err := http.NewRequest(http.MethodPost, baseURL+"/tor/js/loadSearchJSONbasic.php?perpage="+strconv.Itoa(perPage), bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("User-Agent", userAgent)
+	req.Header.Set("Accept", "application/json,text/plain,*/*")
+	req.Header.Set("Cookie", "mam_id="+url.QueryEscape(c.cookie.Reveal()))
+
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode >= 400 {
+		return nil, fmt.Errorf("mam http %d", resp.StatusCode)
+	}
+
 	var parsed searchResponse
-	if err := json.Unmarshal(body, &parsed); err != nil {
+	if err := json.Unmarshal(respBody, &parsed); err != nil {
 		return nil, fmt.Errorf("mam returned non-JSON search response")
 	}
 
 	results := make([]SearchResult, 0, len(parsed.Data))
 	for _, item := range parsed.Data {
-		size, _ := item.Size.Int64()
-		seeders, _ := item.Seeders.Int64()
-		leechers, _ := item.Leechers.Int64()
-		free, _ := item.Free.Int64()
-		flVip, _ := item.FLVip.Int64()
+		size, err := parseSizeString(item.Size)
+		if err != nil {
+			// Skip results we can't size rather than silently treating
+			// them as 0 bytes, which would let them slip past a MinSizeMB
+			// filter that should have excluded them.
+			continue
+		}
+		seedersN, _ := item.Seeders.Int64()
+		leechersN, _ := item.Leechers.Int64()
+		freeN, _ := item.Free.Int64()
+		flVipN, _ := item.FLVip.Int64()
+		freeleech := freeN != 0 || flVipN != 0
+		seeders := int(seedersN)
+		leechers := int(leechersN)
+
+		if !passesFilters(f, size, seeders, leechers) {
+			continue
+		}
+		if f.FreeleechOnly && !freeleech {
+			continue
+		}
 
 		downloadURL := ""
 		if item.DL != "" {
-			downloadURL = fmt.Sprintf("%s/tor/download.php/%s?tid=%s", baseURL, item.DL, item.ID.String())
+			downloadURL = fmt.Sprintf("%s/tor/download.php/%s", baseURL, item.DL)
 		}
 
 		results = append(results, SearchResult{
 			ID:          item.ID.String(),
 			Title:       item.Title,
 			SizeBytes:   size,
-			Seeders:     int(seeders),
-			Leechers:    int(leechers),
-			Freeleech:   free != 0 || flVip != 0,
+			Seeders:     seeders,
+			Leechers:    leechers,
+			Freeleech:   freeleech,
 			DownloadURL: downloadURL,
 		})
 	}
 	return results, nil
+}
+
+// searchTypeFor maps FreeleechOnly to MAM's searchType enum ("fl") when
+// set, so the freeleech filter narrows results server-side rather than
+// relying solely on the client-side post-filter — more efficient, and
+// matches how MAM's own docs describe filtering for freeleech.
+func searchTypeFor(f SearchFilters) string {
+	if f.FreeleechOnly {
+		return "fl"
+	}
+	return "all"
+}
+
+func sortTypeOrDefault(sortType string) string {
+	if sortType == "" {
+		return "default"
+	}
+	return sortType
+}
+
+// parseSizeString parses MAM's human-formatted size strings ("528.3 MiB",
+// "211.9 KiB", "1.2 GiB") into bytes. Confirmed against live search
+// responses (2026-09-30) that this is binary units (MiB/KiB, base 1024),
+// not decimal (MB/KB, base 1000) — MAM's own docs incorrectly show size as
+// a raw byte-count string in their worked example, which does not match
+// reality.
+func parseSizeString(s string) (int64, error) {
+	s = strings.TrimSpace(s)
+	parts := strings.Fields(s)
+	if len(parts) != 2 {
+		return 0, fmt.Errorf("unrecognized size format: %q", s)
+	}
+	value, err := strconv.ParseFloat(parts[0], 64)
+	if err != nil {
+		return 0, fmt.Errorf("unrecognized size value: %q", s)
+	}
+	var multiplier float64
+	switch strings.ToUpper(parts[1]) {
+	case "B":
+		multiplier = 1
+	case "KIB":
+		multiplier = 1024
+	case "MIB":
+		multiplier = 1024 * 1024
+	case "GIB":
+		multiplier = 1024 * 1024 * 1024
+	case "TIB":
+		multiplier = 1024 * 1024 * 1024 * 1024
+	default:
+		return 0, fmt.Errorf("unrecognized size unit: %q", s)
+	}
+	return int64(value * multiplier), nil
+}
+
+// passesFilters applies the client-side seeders/leechers/size range checks
+// that MAM's search API does not support server-side.
+func passesFilters(f SearchFilters, sizeBytes int64, seeders, leechers int) bool {
+	sizeMB := sizeBytes / (1024 * 1024)
+	if f.MinSeeders > 0 && seeders < f.MinSeeders {
+		return false
+	}
+	if f.MaxSeeders > 0 && seeders > f.MaxSeeders {
+		return false
+	}
+	if f.MinLeechers > 0 && leechers < f.MinLeechers {
+		return false
+	}
+	if f.MaxLeechers > 0 && leechers > f.MaxLeechers {
+		return false
+	}
+	if f.MinSizeMB > 0 && sizeMB < int64(f.MinSizeMB) {
+		return false
+	}
+	if f.MaxSizeMB > 0 && sizeMB > int64(f.MaxSizeMB) {
+		return false
+	}
+	return true
 }
 
 // DownloadTorrentFile fetches the .torrent file bytes for a search result's
