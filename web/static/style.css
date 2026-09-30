@@ -56,6 +56,7 @@ h2 { font-size: 14px; text-transform: uppercase; letter-spacing: 0.04em; color: 
 }
 .auth-card form { display: flex; flex-direction: column; gap: 14px; margin-top: 16px; }
 .auth-card label { display: flex; flex-direction: column; gap: 6px; font-size: 13px; color: var(--text-dim); }
+.auth-card form button[type="submit"] { margin-top: 8px; }
 
 input[type="text"], input[type="password"], input[type="number"], select {
   background: transparent;
