@@ -193,6 +193,9 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 .limit-picker { display: flex; gap: 10px; }
 .limit-picker select { flex: 1 1 0; }
 .limit-picker input[type="number"] { flex: 1 1 0; }
+@media (max-width: 480px) {
+  .limit-picker { flex-direction: column; }
+}
 .field-row > label:first-child { font-size: 13px; color: var(--text-dim); }
 .field-row > label.checkbox-label:first-child,
 .field-row > label.radio-label:first-child { color: var(--text); }
