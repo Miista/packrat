@@ -366,11 +366,30 @@ func (s *Scheduler) runOnce(ctx context.Context, dryRun bool) {
 	// managed), actually download and add them. Cancellation is checked
 	// here too — Pause() mid-phase-2 still stops before starting a new
 	// add, same as before.
+	//
+	// downloadDelay throttles consecutive MAM download requests. Without
+	// it, a batch of ~90 downloads fired back-to-back in under a second
+	// tripped MAM's rate limiting (HTTP 429) after roughly the first 10 —
+	// confirmed live, 2026-10-01, once logging was fixed enough to actually
+	// show the error. Configurable via settings (default 2s); ctx-aware so
+	// Pause() still interrupts promptly instead of waiting out the delay
+	// first.
+	downloadDelay := time.Duration(cfg.DownloadDelaySeconds) * time.Second
 	added := make([]store.AddedTorrent, 0, len(candidates))
-	for _, res := range candidates {
+	for i, res := range candidates {
 		if ctx.Err() != nil {
 			cancelled = true
 			break
+		}
+		if i > 0 && !dryRun {
+			select {
+			case <-time.After(downloadDelay):
+			case <-ctx.Done():
+				cancelled = true
+			}
+			if cancelled {
+				break
+			}
 		}
 
 		if dryRun {

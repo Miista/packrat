@@ -149,6 +149,7 @@
             <div class="field-row" v-for="f in [
               {key:'reserve', label:'Reserve', min:0, max: state.have_unsat ? state.unsat_limit : null, hint:'Kept below MAM\'s unsatisfied-torrent limit — target = limit − reserve. Cannot exceed the limit.'},
               {key:'next_run_delay_minutes', label:'Minutes between runs', min:2, max:null, hint:'How often the scheduler checks in and runs the top-up while active.'},
+              {key:'download_delay_seconds', label:'Seconds between downloads', min:0, max:null, hint:'Delay between each torrent download during a run. MAM rate-limits a burst of downloads fired back-to-back.'},
             ]" :key="f.key">
               <label>{{ f.label }}</label>
               <div v-if="settings.env_managed[f.key]" class="locked-field">

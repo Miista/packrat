@@ -91,18 +91,24 @@ type SearchFilters struct {
 // cookie; it is a persisted secret and is masked whenever rendered to the
 // API (see internal/api).
 type Settings struct {
-	MamID               string         `json:"mam_id"`
-	Reserve             int            `json:"reserve"` // buffer kept below MAM's unsat.limit
-	NextRunDelayMinutes int            `json:"next_run_delay_minutes"`
-	SearchFilters       SearchFilters  `json:"search_filters"`
-	DownloadClient      DownloadClient `json:"download_client"`
+	MamID               string `json:"mam_id"`
+	Reserve             int    `json:"reserve"` // buffer kept below MAM's unsat.limit
+	NextRunDelayMinutes int    `json:"next_run_delay_minutes"`
+	// DownloadDelaySeconds throttles consecutive MAM torrent-file downloads
+	// during a run's add phase. MAM rate-limits (HTTP 429) a burst of
+	// downloads fired back-to-back — confirmed live, 2026-10-01: a batch
+	// of ~90 tripped it after roughly the first 10 with no delay at all.
+	DownloadDelaySeconds int            `json:"download_delay_seconds"`
+	SearchFilters        SearchFilters  `json:"search_filters"`
+	DownloadClient       DownloadClient `json:"download_client"`
 }
 
 // DefaultSettings returns the baseline settings for a fresh install.
 func DefaultSettings() Settings {
 	return Settings{
-		Reserve:             5,
-		NextRunDelayMinutes: 30,
+		Reserve:              5,
+		NextRunDelayMinutes:  30,
+		DownloadDelaySeconds: 2,
 		SearchFilters: SearchFilters{
 			SortType: "default",
 		},

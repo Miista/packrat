@@ -29,6 +29,7 @@ var definitions = []Field{
 	{Key: "mam_id", EnvOverridable: true},
 	{Key: "reserve", EnvOverridable: true},
 	{Key: "next_run_delay_minutes", EnvOverridable: true},
+	{Key: "download_delay_seconds", EnvOverridable: true},
 }
 
 func init() {
@@ -78,6 +79,7 @@ func Resolve(persisted store.Settings) Resolved {
 	apply("mam_id", func(v string) { r.Settings.MamID = v })
 	apply("reserve", func(v string) { r.Settings.Reserve = parseInt(v, r.Settings.Reserve) })
 	apply("next_run_delay_minutes", func(v string) { r.Settings.NextRunDelayMinutes = parseInt(v, r.Settings.NextRunDelayMinutes) })
+	apply("download_delay_seconds", func(v string) { r.Settings.DownloadDelaySeconds = parseInt(v, r.Settings.DownloadDelaySeconds) })
 
 	return r
 }
