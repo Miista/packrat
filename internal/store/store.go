@@ -38,6 +38,18 @@ type DownloadClient struct {
 // AddOptions are the qBittorrent /api/v2/torrents/add fields this app lets
 // the user pin on every torrent it adds, rather than leaving them at
 // qBittorrent's own defaults.
+//
+// RatioLimit and SeedingTimeLimitMinutes store qBittorrent's own sentinel
+// convention directly, matching the "Use global / Unlimited / Custom"
+// picker qBittorrent's own UI (and qui's) uses for these two fields:
+//   - -2 = use the client's global default limit
+//   - -1 = no limit, seed forever
+//   - >=0 = an explicit custom limit
+//
+// Storing the raw qBittorrent sentinel (rather than this app inventing its
+// own "0 means default" mapping) removes any ambiguity between "unset" and
+// "a real custom value of 0" — both are meaningful, distinct qBittorrent
+// states in their own right.
 type AddOptions struct {
 	Category                string  `json:"category"`
 	Tags                    string  `json:"tags"` // comma-separated, per qBittorrent's API
@@ -46,6 +58,11 @@ type AddOptions struct {
 	RatioLimit              float64 `json:"ratio_limit"`
 	SeedingTimeLimitMinutes int     `json:"seeding_time_limit_minutes"`
 }
+
+const (
+	QbitLimitUseGlobal = -2
+	QbitLimitUnlimited = -1
+)
 
 // Configured reports whether enough connection detail has been entered to
 // attempt using this download client. URL is the only real signal — Type
@@ -91,14 +108,13 @@ func DefaultSettings() Settings {
 		},
 		DownloadClient: DownloadClient{
 			Type: ClientQBittorrent,
-			// Ratio/seeding-time limit default to -1 (qBittorrent's own "no
-			// limit, seed forever" sentinel) rather than 0 (client default)
-			// — packrat exists to build ratio, so torrents it adds
+			// Ratio/seeding-time limit default to Unlimited rather than Use
+			// global — packrat exists to build ratio, so torrents it adds
 			// shouldn't stop seeding on their own unless the user opts into
 			// a limit explicitly.
 			AddOptions: AddOptions{
-				RatioLimit:              -1,
-				SeedingTimeLimitMinutes: -1,
+				RatioLimit:              QbitLimitUnlimited,
+				SeedingTimeLimitMinutes: QbitLimitUnlimited,
 			},
 		},
 	}

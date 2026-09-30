@@ -406,23 +406,23 @@ func applyAddOptionsPatch(ao *store.AddOptions, incoming map[string]any) {
 	setNonNegInt("upload_limit_kbs", &ao.UploadLimitKBs)
 	setNonNegInt("download_limit_kbs", &ao.DownloadLimitKBs)
 
-	// seeding_time_limit_minutes and ratio_limit allow -1 specifically
-	// (qBittorrent's own "no limit" sentinel, passed straight through — see
-	// qbitLimitSentinel in the qbittorrent download client) in addition to
-	// 0 and positive values; anything below -1 is meaningless and clamped.
+	// seeding_time_limit_minutes and ratio_limit store qBittorrent's own
+	// sentinel values directly (store.QbitLimitUseGlobal = -2,
+	// store.QbitLimitUnlimited = -1, or any non-negative custom value) —
+	// anything below -2 is meaningless and clamped.
 	setLimitInt := func(key string, dst *int) {
 		if v, ok := incoming[key].(float64); ok {
 			n := int(v)
-			if n < -1 {
-				n = -1
+			if n < store.QbitLimitUseGlobal {
+				n = store.QbitLimitUseGlobal
 			}
 			*dst = n
 		}
 	}
 	setLimitInt("seeding_time_limit_minutes", &ao.SeedingTimeLimitMinutes)
 	if v, ok := incoming["ratio_limit"].(float64); ok {
-		if v < -1 {
-			v = -1
+		if v < store.QbitLimitUseGlobal {
+			v = store.QbitLimitUseGlobal
 		}
 		ao.RatioLimit = v
 	}

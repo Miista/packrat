@@ -230,14 +230,28 @@
             <div class="field-row" v-for="f in [
               {key:'upload_limit_kbs', label:'Upload limit (KB/s, 0 = client default)', min:0},
               {key:'download_limit_kbs', label:'Download limit (KB/s, 0 = client default)', min:0},
-              {key:'seeding_time_limit_minutes', label:'Seeding time limit (minutes, 0 = client default, -1 = unlimited)', min:-1},
             ]" :key="f.key">
               <label>{{ f.label }}</label>
               <input type="number" v-model.number="settings.values.download_client.add_options[f.key]" :min="f.min">
             </div>
-            <div class="field-row">
-              <label>Ratio limit (0 = client default, -1 = unlimited)</label>
-              <input type="number" v-model.number="settings.values.download_client.add_options.ratio_limit" min="-1" step="0.1">
+            <div class="field-row" v-for="f in [
+              {key:'ratio_limit', label:'Ratio limit', step:0.1},
+              {key:'seeding_time_limit_minutes', label:'Seeding time limit (minutes)', step:1},
+            ]" :key="f.key">
+              <label>{{ f.label }}</label>
+              <div class="limit-picker">
+                <select :value="limitMode(f.key)" @change="setLimitMode(f.key, $event.target.value)">
+                  <option value="global">Use global</option>
+                  <option value="unlimited">Unlimited</option>
+                  <option value="custom">Custom</option>
+                </select>
+                <input v-if="limitMode(f.key) === 'custom'" type="number"
+                  v-model.number="settings.values.download_client.add_options[f.key]"
+                  min="0" :step="f.step">
+              </div>
+              <p class="hint" v-if="f.key === 'seeding_time_limit_minutes' && limitMode(f.key) === 'custom'">
+                {{ minutesAsDuration(settings.values.download_client.add_options[f.key]) }}
+              </p>
             </div>
           </fieldset>
 

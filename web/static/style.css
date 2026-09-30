@@ -190,6 +190,9 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 .step-label:first-of-type { margin-top: 4px; }
 .field-row { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; }
 .field-row:last-child { margin-bottom: 0; }
+.limit-picker { display: flex; gap: 10px; }
+.limit-picker select { flex: 1 1 0; }
+.limit-picker input[type="number"] { flex: 1 1 0; }
 .field-row > label:first-child { font-size: 13px; color: var(--text-dim); }
 .field-row > label.checkbox-label:first-child,
 .field-row > label.radio-label:first-child { color: var(--text); }

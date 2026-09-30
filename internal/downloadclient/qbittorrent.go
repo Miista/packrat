@@ -171,17 +171,9 @@ func (c *qbittorrentClient) uploadTorrent(torrentFile []byte, name string) (stat
 
 // writeAddOptionFields adds the optional qBittorrent /api/v2/torrents/add
 // form fields this app lets the user pin (category, tags, speed/ratio/time
-// limits).
-//
-// ratioLimit/seedingTimeLimit follow qBittorrent's own three-state
-// convention rather than a plain "0 = unset" rule, since 0 is itself a
-// real, valid, and aggressive value for these two fields specifically
-// (stop seeding immediately at ratio/time 0) — NOT a safe stand-in for
-// "leave at default" the way it is for the speed limits below:
-//   - our own settings value 0 (blank/default in the UI) -> sent as -2,
-//     qBittorrent's own "use the client's global default limit" sentinel
-//   - -1 -> sent as -1, qBittorrent's own "no limit, seed forever" sentinel
-//   - any positive value -> sent literally as that explicit limit
+// limits). RatioLimit/SeedingTimeLimitMinutes are stored as qBittorrent's
+// own sentinel values already (see store.AddOptions) and passed straight
+// through unchanged.
 func (c *qbittorrentClient) writeAddOptionFields(writer *multipart.Writer) error {
 	o := c.addOpts
 	fields := map[string]string{}
@@ -197,24 +189,12 @@ func (c *qbittorrentClient) writeAddOptionFields(writer *multipart.Writer) error
 	if o.DownloadLimitKBs > 0 {
 		fields["dlLimit"] = strconv.Itoa(o.DownloadLimitKBs * 1024)
 	}
-	fields["ratioLimit"] = strconv.FormatFloat(qbitLimitSentinel(o.RatioLimit), 'f', -1, 64)
-	fields["seedingTimeLimit"] = strconv.Itoa(int(qbitLimitSentinel(float64(o.SeedingTimeLimitMinutes))))
+	fields["ratioLimit"] = strconv.FormatFloat(o.RatioLimit, 'f', -1, 64)
+	fields["seedingTimeLimit"] = strconv.Itoa(o.SeedingTimeLimitMinutes)
 	for k, v := range fields {
 		if err := writer.WriteField(k, v); err != nil {
 			return err
 		}
 	}
 	return nil
-}
-
-// qbitLimitSentinel maps this app's own settings value for a ratio/seeding
-// limit onto qBittorrent's sentinel convention: 0 (this app's "use
-// default") becomes -2 ("use global default" in qBittorrent's own terms),
-// -1 ("no limit") passes through unchanged, and any positive value passes
-// through unchanged as an explicit limit.
-func qbitLimitSentinel(v float64) float64 {
-	if v == 0 {
-		return -2
-	}
-	return v
 }

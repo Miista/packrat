@@ -208,6 +208,39 @@ function App() {
       if (isNaN(d.getTime())) return String(value);
       return d.toLocaleString();
     },
+
+    // limitMode/setLimitMode drive the "Use global / Unlimited / Custom"
+    // picker for ratio_limit and seeding_time_limit_minutes, which store
+    // qBittorrent's own sentinel values directly (-2 = use global, -1 =
+    // unlimited, >=0 = a real custom value — see store.AddOptions on the
+    // backend). The picker derives its mode from the stored number rather
+    // than tracking separate UI state, so switching tabs or reloading
+    // settings never gets out of sync with what's actually persisted.
+    limitMode(key) {
+      const v = this.settings.values.download_client.add_options[key];
+      if (v === -2) return 'global';
+      if (v === -1) return 'unlimited';
+      return 'custom';
+    },
+
+    setLimitMode(key, mode) {
+      const ao = this.settings.values.download_client.add_options;
+      if (mode === 'global') ao[key] = -2;
+      else if (mode === 'unlimited') ao[key] = -1;
+      else if (mode === 'custom' && (ao[key] === -2 || ao[key] === -1)) ao[key] = 0;
+    },
+
+    minutesAsDuration(minutes) {
+      if (!Number.isFinite(minutes) || minutes < 0) return '';
+      const days = Math.floor(minutes / 1440);
+      const hours = Math.floor((minutes % 1440) / 60);
+      const mins = minutes % 60;
+      const parts = [];
+      if (days) parts.push(`${days}d`);
+      if (hours) parts.push(`${hours}h`);
+      if (mins || parts.length === 0) parts.push(`${mins}m`);
+      return `Minutes (${minutes} = ${parts.join(' ')})`;
+    },
   };
 }
 
