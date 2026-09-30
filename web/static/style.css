@@ -191,10 +191,11 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 .field-row { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; }
 .field-row:last-child { margin-bottom: 0; }
 .limit-picker { display: flex; gap: 10px; }
-.limit-picker select { flex: 1 1 0; }
+.limit-picker select { flex: 0 0 180px; }
 .limit-picker input[type="number"] { flex: 1 1 0; }
 @media (max-width: 480px) {
   .limit-picker { flex-direction: column; }
+  .limit-picker select { flex: 1 1 auto; }
 }
 .field-row > label:first-child { font-size: 13px; color: var(--text-dim); }
 .field-row > label.checkbox-label:first-child,
