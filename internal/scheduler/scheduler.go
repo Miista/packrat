@@ -5,6 +5,7 @@
 package scheduler
 
 import (
+	"context"
 	"fmt"
 	"sync"
 	"time"
@@ -26,6 +27,9 @@ type Scheduler struct {
 
 	mu      sync.Mutex
 	running bool
+	// cancelRun stops the currently in-flight run's add-torrent loop
+	// between iterations, when set. Non-nil only while a run is active.
+	cancelRun context.CancelFunc
 
 	// lastUnsat is the most recently observed unsat status. Kept in memory
 	// only, deliberately not persisted — a restart just means it's unknown
@@ -79,9 +83,17 @@ func (s *Scheduler) StartSchedule() error {
 	})
 }
 
-// Pause disables the scheduler. In-flight runs finish, but no new run will
-// be triggered until StartSchedule is called again.
+// Pause disables the scheduler and, if a run is currently adding torrents,
+// stops it between torrents rather than letting it finish its full batch.
+// Search/download for the torrent already in flight completes (it's not
+// interrupted mid-request), but no further torrents are added after that.
+// No new run will be triggered until StartSchedule is called again.
 func (s *Scheduler) Pause() error {
+	s.mu.Lock()
+	if s.cancelRun != nil {
+		s.cancelRun()
+	}
+	s.mu.Unlock()
 	return s.store.Update(func(st *store.State) {
 		st.Paused = true
 		st.SchedulerOn = false
@@ -125,13 +137,20 @@ func (s *Scheduler) recordUnsat(status mamclient.UnsatStatus) {
 }
 
 func (s *Scheduler) runAndReschedule() {
+	ctx, cancel := context.WithCancel(context.Background())
+	s.mu.Lock()
+	s.cancelRun = cancel
+	s.mu.Unlock()
+
 	defer func() {
 		s.mu.Lock()
 		s.running = false
+		s.cancelRun = nil
 		s.mu.Unlock()
+		cancel()
 	}()
 
-	s.runOnce()
+	s.runOnce(ctx)
 
 	_ = s.store.Update(func(st *store.State) {
 		if st.SchedulerOn && !st.Paused {
@@ -142,7 +161,7 @@ func (s *Scheduler) runAndReschedule() {
 	})
 }
 
-func (s *Scheduler) runOnce() {
+func (s *Scheduler) runOnce(ctx context.Context) {
 	startedAt := time.Now()
 	entry := store.HistoryEntry{StartedAt: startedAt, CreatedAt: startedAt, Result: "Completed"}
 
@@ -225,9 +244,18 @@ func (s *Scheduler) runOnce() {
 		return
 	}
 
+	cancelled := false
 	added := make([]store.AddedTorrent, 0, needed)
 	for _, res := range results {
 		if len(added) >= needed {
+			break
+		}
+		if ctx.Err() != nil {
+			// Pause() was called mid-run: stop adding further torrents.
+			// The torrent already in flight (if any) already completed
+			// its own request above before this check runs again — this
+			// only prevents starting a *new* one.
+			cancelled = true
 			break
 		}
 		if res.DownloadURL == "" {
@@ -248,9 +276,12 @@ func (s *Scheduler) runOnce() {
 	}
 
 	entry.AddedTorrents = added
-	if len(added) < needed {
+	switch {
+	case cancelled:
+		entry.Result = fmt.Sprintf("Stopped: added %d of %d needed torrents before the scheduler was deactivated.", len(added), needed)
+	case len(added) < needed:
 		entry.Result = fmt.Sprintf("Added %d of %d needed torrents (ran out of candidates or hit errors).", len(added), needed)
-	} else {
+	default:
 		entry.Result = fmt.Sprintf("Added %d torrents.", len(added))
 	}
 
