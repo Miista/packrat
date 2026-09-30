@@ -23,8 +23,9 @@ target = unsat.limit - reserve
 needed = target - unsat.count
 ```
 
-Each run fetches the current status, and if `needed > 0`, searches MAM and
-adds up to `min(needed, max_add_per_run)` matching torrents.
+Each run fetches the current status, and if `needed > 0`, searches MAM
+(paginating as needed) until it has collected `needed` candidates or
+genuinely runs out of results, then adds them.
 
 ## Status
 
@@ -91,6 +92,6 @@ MAMRATIO_ADDR=127.0.0.1:8766 MAMRATIO_DATA_DIR=./data ./mam-ratio
 - `MAMRATIO_DATA_DIR` — where `config.json` is persisted (default `/app/data`).
 - `MAMRATIO_AUTH_DISABLED=true` — disables the admin login entirely.
 - `MAMRATIO_SETTING_<KEY>` — env-var overrides for `mam_id`, `reserve`,
-  `next_run_delay_minutes`, `max_add_per_run`. Search filters and download
-  client config are not yet env-overridable (only settable via the UI).
+  `next_run_delay_minutes`. Search filters and download client config are
+  not yet env-overridable (only settable via the UI).
 - `LOG_LEVEL` — zerolog level (default `info`).

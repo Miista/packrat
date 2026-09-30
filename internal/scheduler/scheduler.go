@@ -230,9 +230,6 @@ func (s *Scheduler) runOnce(ctx context.Context, dryRun bool) {
 		s.log.Info().Int("unsat_count", unsat.Count).Int("target", target).Msg("top-up run complete, nothing needed")
 		return
 	}
-	if cfg.MaxAddPerRun > 0 && needed > cfg.MaxAddPerRun {
-		needed = cfg.MaxAddPerRun
-	}
 	entry.NeededCount = needed
 
 	var dlClient downloadclient.Client

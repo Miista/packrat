@@ -50,7 +50,6 @@ type Settings struct {
 	MamID               string         `json:"mam_id"`
 	Reserve             int            `json:"reserve"` // buffer kept below MAM's unsat.limit
 	NextRunDelayMinutes int            `json:"next_run_delay_minutes"`
-	MaxAddPerRun        int            `json:"max_add_per_run"` // safety cap on how many torrents one run can add
 	SearchFilters       SearchFilters  `json:"search_filters"`
 	DownloadClient      DownloadClient `json:"download_client"`
 }
@@ -60,7 +59,6 @@ func DefaultSettings() Settings {
 	return Settings{
 		Reserve:             5,
 		NextRunDelayMinutes: 30,
-		MaxAddPerRun:        20,
 		SearchFilters: SearchFilters{
 			SortType: "default",
 		},

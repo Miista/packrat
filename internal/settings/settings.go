@@ -29,7 +29,6 @@ var definitions = []Field{
 	{Key: "mam_id", EnvOverridable: true},
 	{Key: "reserve", EnvOverridable: true},
 	{Key: "next_run_delay_minutes", EnvOverridable: true},
-	{Key: "max_add_per_run", EnvOverridable: true},
 }
 
 func init() {
@@ -79,7 +78,6 @@ func Resolve(persisted store.Settings) Resolved {
 	apply("mam_id", func(v string) { r.Settings.MamID = v })
 	apply("reserve", func(v string) { r.Settings.Reserve = parseInt(v, r.Settings.Reserve) })
 	apply("next_run_delay_minutes", func(v string) { r.Settings.NextRunDelayMinutes = parseInt(v, r.Settings.NextRunDelayMinutes) })
-	apply("max_add_per_run", func(v string) { r.Settings.MaxAddPerRun = parseInt(v, r.Settings.MaxAddPerRun) })
 
 	return r
 }

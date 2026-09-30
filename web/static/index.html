@@ -131,7 +131,6 @@
             <legend>Target</legend>
             <div class="field-row" v-for="f in [
               {key:'reserve', label:'Reserve', min:0, max:null, hint:'Kept below MAM\'s unsatisfied-torrent limit — target = limit − reserve.'},
-              {key:'max_add_per_run', label:'Max torrents to add per run', min:1, max:null, hint:'Safety cap on how many torrents one run can add, even if more are needed to reach target.'},
               {key:'next_run_delay_minutes', label:'Minutes between runs', min:2, max:null, hint:'How often the scheduler checks in and runs the top-up while active.'},
             ]" :key="f.key">
               <label>{{ f.label }}</label>

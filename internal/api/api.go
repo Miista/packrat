@@ -255,7 +255,6 @@ func applySettingsPatch(st *store.Settings, incoming map[string]any) {
 	setString("mam_id", &st.MamID)
 	setInt("reserve", &st.Reserve, 0, 0)
 	setInt("next_run_delay_minutes", &st.NextRunDelayMinutes, 2, 0)
-	setInt("max_add_per_run", &st.MaxAddPerRun, 1, 0)
 
 	if sf, ok := incoming["search_filters"].(map[string]any); ok {
 		applySearchFiltersPatch(&st.SearchFilters, sf)
@@ -325,7 +324,6 @@ func publicSettings(resolved settings.Resolved) map[string]any {
 		"mam_id":                 settings.MaskSecret(s.MamID),
 		"reserve":                s.Reserve,
 		"next_run_delay_minutes": s.NextRunDelayMinutes,
-		"max_add_per_run":        s.MaxAddPerRun,
 		"search_filters": map[string]any{
 			"text":           s.SearchFilters.Text,
 			"min_seeders":    s.SearchFilters.MinSeeders,
