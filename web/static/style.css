@@ -88,6 +88,8 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 .error-box { color: var(--red); font-size: 13px; }
 .success-box { color: var(--green); font-size: 13px; }
 
+.settings-submit-row { display: flex; align-items: center; gap: 12px; }
+
 /* Tabs */
 .tabs { display: flex; gap: 8px; margin-bottom: 20px; border-bottom: 1px solid var(--border); }
 .tabs button {

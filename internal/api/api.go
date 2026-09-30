@@ -184,8 +184,10 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	unsat, haveUnsat := s.scheduler.UnsatStatus()
+
 	err := s.store.Update(func(st *store.State) {
-		applySettingsPatch(&st.Settings, incoming)
+		applySettingsPatch(&st.Settings, incoming, unsat.Limit, haveUnsat)
 	})
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
@@ -225,7 +227,7 @@ func (s *Server) handleDryRun(w http.ResponseWriter, r *http.Request) {
 // applySettingsPatch applies whitelisted, validated fields from incoming
 // onto st. Fields that are currently env-managed are silently ignored so a
 // client can't override an operator-pinned value via the API.
-func applySettingsPatch(st *store.Settings, incoming map[string]any) {
+func applySettingsPatch(st *store.Settings, incoming map[string]any, unsatLimit int, haveUnsat bool) {
 	resolved := settings.Resolve(*st)
 
 	setInt := func(key string, dst *int, min, max int) {
@@ -253,7 +255,17 @@ func applySettingsPatch(st *store.Settings, incoming map[string]any) {
 	}
 
 	setString("mam_id", &st.MamID)
-	setInt("reserve", &st.Reserve, 0, 0)
+	// Reserve can never legitimately exceed MAM's current unsatisfied-torrent
+	// limit — that would make the target negative, which the scheduler
+	// already clamps to zero, but it's a nonsensical setting so it's
+	// rejected here too when the limit is known. Not yet knowing the limit
+	// (no run has completed yet) leaves reserve unbounded above, same as
+	// before.
+	reserveMax := 0
+	if haveUnsat {
+		reserveMax = unsatLimit
+	}
+	setInt("reserve", &st.Reserve, 0, reserveMax)
 	setInt("next_run_delay_minutes", &st.NextRunDelayMinutes, 2, 0)
 
 	if sf, ok := incoming["search_filters"].(map[string]any); ok {
