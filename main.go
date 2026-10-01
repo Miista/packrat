@@ -29,10 +29,6 @@ func main() {
 	}
 	addr := os.Getenv("PACKRAT_ADDR")
 	if addr == "" {
-		// A bare ":8766" (no host prefix) binds all interfaces, matching
-		// tagbrr/reaparr's convention elsewhere in this stack — makes the
-		// container reachable out of the box via a plain `ports:` mapping,
-		// with no PACKRAT_ADDR override needed just to get there.
 		addr = ":8766"
 	}
 	staticDir := os.Getenv("PACKRAT_STATIC_DIR")
