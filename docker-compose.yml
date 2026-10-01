@@ -1,8 +1,7 @@
 services:
   packrat:
-    image: packrat:local
+    image: ghcr.io/miista/packrat:latest
     container_name: packrat
-    build: .
     ports:
       - "8766:8766"
     volumes:

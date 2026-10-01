@@ -1,0 +1,53 @@
+version: 2
+project_name: packrat
+
+builds:
+  - main: .
+    env:
+      - CGO_ENABLED=0
+    goos: [linux]
+    goarch: [amd64, arm64]
+    flags: [-trimpath]
+    ldflags:
+      - -s -w -X main.version={{.Version}}
+
+archives:
+  - formats: [tar.gz]
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+
+dockers:
+  - use: buildx
+    goarch: amd64
+    dockerfile: Dockerfile
+    extra_files:
+      - web/static/
+    image_templates:
+      - ghcr.io/miista/packrat:{{ .Version }}-amd64
+    build_flag_templates:
+      - --platform=linux/amd64
+      - --label=org.opencontainers.image.source=https://github.com/Miista/packrat
+      - --label=org.opencontainers.image.version={{ .Version }}
+  - use: buildx
+    goarch: arm64
+    dockerfile: Dockerfile
+    extra_files:
+      - web/static/
+    image_templates:
+      - ghcr.io/miista/packrat:{{ .Version }}-arm64
+    build_flag_templates:
+      - --platform=linux/arm64
+      - --label=org.opencontainers.image.source=https://github.com/Miista/packrat
+      - --label=org.opencontainers.image.version={{ .Version }}
+
+docker_manifests:
+  - name_template: ghcr.io/miista/packrat:{{ .Version }}
+    image_templates:
+      - ghcr.io/miista/packrat:{{ .Version }}-amd64
+      - ghcr.io/miista/packrat:{{ .Version }}-arm64
+  - name_template: ghcr.io/miista/packrat:latest
+    image_templates:
+      - ghcr.io/miista/packrat:{{ .Version }}-amd64
+      - ghcr.io/miista/packrat:{{ .Version }}-arm64
+
+changelog:
+  use: github-native
