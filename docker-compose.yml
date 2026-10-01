@@ -5,9 +5,8 @@ services:
     build: .
     # Dashboard is published on the host. It's protected by the built-in
     # admin login (first-launch setup) — so this is safe to expose directly.
-    # If you'd rather front it with a reverse proxy (Caddy/Authelia) instead,
-    # remove this ports block and reach it over the Docker network as
-    # packrat:8766.
+    # If you'd rather front it with a reverse proxy instead, remove this
+    # ports block and reach it over the Docker network as packrat:8766.
     ports:
       - "8766:8766"
     volumes:
