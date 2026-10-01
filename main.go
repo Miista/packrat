@@ -27,10 +27,7 @@ func main() {
 	if dataDir == "" {
 		dataDir = "/app/data"
 	}
-	addr := os.Getenv("PACKRAT_ADDR")
-	if addr == "" {
-		addr = ":8766"
-	}
+	const addr = ":8766"
 	staticDir := os.Getenv("PACKRAT_STATIC_DIR")
 	if staticDir == "" {
 		staticDir = "web/static"

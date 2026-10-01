@@ -83,12 +83,11 @@ Or without Docker:
 
 ```sh
 go build -o packrat .
-PACKRAT_ADDR=127.0.0.1:8766 PACKRAT_DATA_DIR=./data ./packrat
+PACKRAT_DATA_DIR=./data ./packrat
 ```
 
 ## Environment variables
 
-- `PACKRAT_ADDR` — listen address (default `127.0.0.1:8766`).
 - `PACKRAT_DATA_DIR` — where `config.json` is persisted (default `/app/data`).
 - `PACKRAT_AUTH_DISABLED=true` — disables the admin login entirely.
 - `PACKRAT_SETTING_<KEY>` — env-var overrides for `mam_id`, `reserve`,

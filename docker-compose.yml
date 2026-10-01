@@ -13,8 +13,6 @@ services:
     volumes:
       - ./data:/app/data
     environment:
-      PACKRAT_ADDR: "0.0.0.0:8766"
-      PACKRAT_DATA_DIR: "/app/data"
       # Recommended: pin the MAM session cookie via env var so it never
       # touches disk. The UI will show this field locked once set.
       # PACKRAT_SETTING_MAM_ID: "your_mam_id_cookie_value"
