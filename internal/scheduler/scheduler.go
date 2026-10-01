@@ -330,6 +330,7 @@ func (s *Scheduler) runOnce(ctx context.Context, dryRun bool) {
 			MinSizeMB:     cfg.SearchFilters.MinSizeMB,
 			MaxSizeMB:     cfg.SearchFilters.MaxSizeMB,
 			FreeleechOnly: cfg.SearchFilters.FreeleechOnly,
+			Category:      mamCategoryFor(cfg.SearchFilters.Category),
 			SortType:      cfg.SearchFilters.SortType,
 			PerPage:       rawPageSize,
 			StartNumber:   rawCursor,
@@ -450,4 +451,18 @@ func (s *Scheduler) appendHistory(entry store.HistoryEntry) {
 	_ = s.store.Update(func(st *store.State) {
 		st.History = append(st.History, entry)
 	})
+}
+
+// mamCategoryFor maps the persisted category string to MAM's actual
+// main_cat ID (see mamclient.CategoryAudiobook/CategoryEbook). Any
+// unrecognized value (including "" and "all") means no restriction.
+func mamCategoryFor(category string) int {
+	switch category {
+	case "audiobook":
+		return mamclient.CategoryAudiobook
+	case "ebook":
+		return mamclient.CategoryEbook
+	default:
+		return 0
+	}
 }

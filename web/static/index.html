@@ -196,6 +196,14 @@
               </label>
             </div>
             <div class="field-row">
+              <label>Format</label>
+              <select v-model="settings.values.search_filters.category">
+                <option value="all">All</option>
+                <option value="audiobook">Audiobooks</option>
+                <option value="ebook">E-books</option>
+              </select>
+            </div>
+            <div class="field-row">
               <label>Sort results by</label>
               <select v-model="settings.values.search_filters.sort_type">
                 <option value="default">Default</option>

@@ -19,6 +19,14 @@ const (
 	userAgent = "packrat-go"
 )
 
+// MAM's main_cat IDs for the two formats packrat distinguishes between.
+// Confirmed against MAM's documented category ID list (2026-10-01) — the
+// full list also includes Musicology (15) and Radio (16), not used here.
+const (
+	CategoryAudiobook = 13
+	CategoryEbook     = 14
+)
+
 // Client makes authenticated requests to MAM using the mam_id session
 // cookie. The cookie is held as a Secret so it can never be accidentally
 // logged in full.
@@ -122,6 +130,12 @@ type SearchFilters struct {
 	MinSizeMB     int
 	MaxSizeMB     int // 0 = unset
 	FreeleechOnly bool
+	// Category restricts results to one MAM main_cat ID: AudioBooks (13) or
+	// E-Books (14) — see CategoryAudiobook/CategoryEbook. 0 means no
+	// restriction (all categories, MAM's default). Unlike the client-side
+	// seeders/leechers/size filters above, main_cat IS a real server-side
+	// filter per MAM's documented search API.
+	Category int
 	// SortType is one of MAM's real sort enum values, e.g. "seedersDesc",
 	// "sizeAsc", "dateDesc", "default". See MAM's search API docs for the
 	// full list; an empty value means "default".
@@ -207,12 +221,16 @@ func (c *Client) Search(f SearchFilters) (results []SearchResult, rawCount int, 
 	// fixed default-sized page no matter what was requested, so callers
 	// asking for a tighter page (to then paginate with startNumber) got the
 	// same unbounded page every time.
+	mainCat := []int{}
+	if f.Category > 0 {
+		mainCat = []int{f.Category}
+	}
 	payload := map[string]any{
 		"tor": map[string]any{
 			"text":        f.Text,
 			"srchIn":      []string{"title"},
 			"searchType":  searchTypeFor(f),
-			"main_cat":    []string{}, // empty = all categories
+			"main_cat":    mainCat, // empty = all categories
 			"sortType":    sortTypeOrDefault(f.SortType),
 			"startNumber": strconv.Itoa(f.StartNumber),
 		},

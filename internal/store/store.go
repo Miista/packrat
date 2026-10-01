@@ -84,7 +84,11 @@ type SearchFilters struct {
 	MinSizeMB     int    `json:"min_size_mb"`
 	MaxSizeMB     int    `json:"max_size_mb"` // 0 = no max
 	FreeleechOnly bool   `json:"freeleech_only"`
-	SortType      string `json:"sort_type"` // default | seeders | size | ...
+	// Category restricts results by MAM main_cat: "all" (default),
+	// "audiobook", or "ebook". Mapped to MAM's actual numeric category ID
+	// (13/14) only at the mamclient call site, not stored as a raw ID here.
+	Category string `json:"category"`
+	SortType string `json:"sort_type"` // default | seeders | size | ...
 }
 
 // Settings holds every user-configurable value. MamID is the MAM session

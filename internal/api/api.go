@@ -359,6 +359,9 @@ func applySearchFiltersPatch(f *store.SearchFilters, incoming map[string]any) {
 	if v, ok := incoming["freeleech_only"].(bool); ok {
 		f.FreeleechOnly = v
 	}
+	if v, ok := incoming["category"].(string); ok {
+		f.Category = strings.TrimSpace(v)
+	}
 	if v, ok := incoming["sort_type"].(string); ok {
 		f.SortType = strings.TrimSpace(v)
 	}
@@ -448,6 +451,7 @@ func publicSettings(resolved settings.Resolved) map[string]any {
 			"min_size_mb":    s.SearchFilters.MinSizeMB,
 			"max_size_mb":    s.SearchFilters.MaxSizeMB,
 			"freeleech_only": s.SearchFilters.FreeleechOnly,
+			"category":       s.SearchFilters.Category,
 			"sort_type":      s.SearchFilters.SortType,
 		},
 		"download_client": map[string]any{
