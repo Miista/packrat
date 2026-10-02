@@ -43,7 +43,8 @@ func main() {
 		log.Fatal().Err(err).Msg("failed to initialize auth")
 	}
 
-	sched := scheduler.New(st, log)
+	// nil factories mean the real MAM and download clients; tests inject fakes.
+	sched := scheduler.New(st, log, nil, nil)
 	sched.Start()
 
 	server := api.New(st, authManager, sched, log)

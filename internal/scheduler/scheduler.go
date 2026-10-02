@@ -22,10 +22,37 @@ import (
 
 const pollInterval = 5 * time.Second
 
+// MamAPI is the slice of MAM's client that the scheduler actually uses.
+// Declared here, in the consumer, rather than in mamclient: *mamclient.Client
+// satisfies it implicitly, and tests can substitute a fake without touching
+// the real client or reaching MAM's servers.
+type MamAPI interface {
+	UnsatStatus() (mamclient.UnsatStatus, error)
+	Search(mamclient.SearchFilters) ([]mamclient.SearchResult, int, error)
+	DownloadTorrentFile(downloadURL string) ([]byte, error)
+}
+
+// NewMamFunc builds a MAM client for one run. It is a factory rather than a
+// single long-lived client because the session cookie comes from settings
+// and can change while the app is running — a client built once at startup
+// would keep using a stale cookie until the next restart.
+type NewMamFunc func(mamclient.Secret) MamAPI
+
+// NewDownloadClientFunc builds a download client from the current settings,
+// per run, for the same reason: the user can change the connection details
+// at any time. downloadclient.New satisfies this directly.
+type NewDownloadClientFunc func(store.DownloadClient) (downloadclient.Client, error)
+
 // Scheduler owns the background run loop.
 type Scheduler struct {
 	store *store.Store
 	log   zerolog.Logger
+
+	// Dependencies are injected at construction (see main.go, the
+	// composition root) rather than built inline, so the run loop can be
+	// exercised against fakes.
+	newMAM NewMamFunc
+	newDL  NewDownloadClientFunc
 
 	mu      sync.Mutex
 	running bool
@@ -40,9 +67,22 @@ type Scheduler struct {
 	haveUnsat bool
 }
 
-// New creates a scheduler bound to st.
-func New(st *store.Store, log zerolog.Logger) *Scheduler {
-	return &Scheduler{store: st, log: log.With().Str("component", "scheduler").Logger()}
+// New creates a scheduler bound to st. newMAM and newDL build the per-run
+// clients; passing nil for either uses the real implementation, which keeps
+// the common case at the call site short.
+func New(st *store.Store, log zerolog.Logger, newMAM NewMamFunc, newDL NewDownloadClientFunc) *Scheduler {
+	if newMAM == nil {
+		newMAM = func(secret mamclient.Secret) MamAPI { return mamclient.New(secret) }
+	}
+	if newDL == nil {
+		newDL = downloadclient.New
+	}
+	return &Scheduler{
+		store:  st,
+		log:    log.With().Str("component", "scheduler").Logger(),
+		newMAM: newMAM,
+		newDL:  newDL,
+	}
 }
 
 // Start begins the background polling loop. Call once at startup.
@@ -65,7 +105,7 @@ func (s *Scheduler) RefreshUnsat() {
 		if cfg.MamID == "" {
 			return
 		}
-		mam := mamclient.New(mamclient.Secret(cfg.MamID))
+		mam := s.newMAM(mamclient.Secret(cfg.MamID))
 		unsat, err := mam.UnsatStatus()
 		if err != nil {
 			return
@@ -303,7 +343,7 @@ func (s *Scheduler) runOnce(ctx context.Context, dryRun bool) (idle bool) {
 		return false
 	}
 
-	mam := mamclient.New(mamclient.Secret(cfg.MamID))
+	mam := s.newMAM(mamclient.Secret(cfg.MamID))
 
 	unsat, err := mam.UnsatStatus()
 	if err != nil {
@@ -337,7 +377,7 @@ func (s *Scheduler) runOnce(ctx context.Context, dryRun bool) (idle bool) {
 	var dlClient downloadclient.Client
 	if !dryRun {
 		var err error
-		dlClient, err = downloadclient.New(cfg.DownloadClient)
+		dlClient, err = s.newDL(cfg.DownloadClient)
 		if err != nil {
 			entry.Result = fmt.Sprintf("Download client not configured: %v", err)
 			s.log.Warn().Err(err).Msg(entry.Result)
