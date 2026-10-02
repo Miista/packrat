@@ -15,9 +15,15 @@ import (
 )
 
 const (
-	baseURL   = "https://www.myanonamouse.net"
-	userAgent = "packrat-go"
+	defaultBaseURL = "https://www.myanonamouse.net"
+	userAgent      = "packrat-go"
 )
+
+// baseURL is the MAM origin every request targets. It is a variable rather
+// than a const solely so tests can point the client at an httptest server
+// serving captured real responses (see testdata/); production never
+// reassigns it.
+var baseURL = defaultBaseURL
 
 // MAM's main_cat IDs for the two formats packrat distinguishes between.
 // Confirmed against MAM's documented category ID list (2026-10-01) — the
