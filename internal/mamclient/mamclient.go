@@ -5,6 +5,7 @@ package mamclient
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -404,8 +405,57 @@ func passesFilters(f SearchFilters, sizeBytes int64, seeders, leechers int) bool
 	return true
 }
 
+// ErrRateLimited reports that MAM answered with HTTP 429. It is returned as
+// a distinct error (rather than folded into the generic "mam http %d" case)
+// so callers can tell "MAM is asking us to slow down" apart from "this one
+// torrent failed" — the two call for opposite responses: backing off versus
+// moving on to the next candidate.
+var ErrRateLimited = errors.New("mam rate limited the request (HTTP 429)")
+
+// RetryAfter returns the server-advised wait from a 429 response, and
+// whether one was given. MAM does not always send Retry-After; when it
+// doesn't, the caller picks its own backoff.
+func RetryAfter(h http.Header) (time.Duration, bool) {
+	v := strings.TrimSpace(h.Get("Retry-After"))
+	if v == "" {
+		return 0, false
+	}
+	// Retry-After is either delta-seconds or an HTTP-date (RFC 7231).
+	if secs, err := strconv.Atoi(v); err == nil {
+		if secs < 0 {
+			return 0, false
+		}
+		return time.Duration(secs) * time.Second, true
+	}
+	if t, err := http.ParseTime(v); err == nil {
+		if d := time.Until(t); d > 0 {
+			return d, true
+		}
+		return 0, true
+	}
+	return 0, false
+}
+
 // DownloadTorrentFile fetches the .torrent file bytes for a search result's
-// download URL, using the same authenticated session.
+// download URL, using the same authenticated session. A 429 is returned
+// wrapped in ErrRateLimited, carrying MAM's Retry-After hint when present.
+
+// RateLimitError is the concrete 429 error. It satisfies errors.Is against
+// ErrRateLimited, so callers can match on the sentinel while still reading
+// MAM's Retry-After hint when one was sent.
+type RateLimitError struct {
+	RetryAfter    time.Duration
+	HasRetryAfter bool
+}
+
+func (e *RateLimitError) Error() string {
+	if e.HasRetryAfter {
+		return fmt.Sprintf("mam rate limited the request (HTTP 429), retry after %s", e.RetryAfter)
+	}
+	return ErrRateLimited.Error()
+}
+
+func (e *RateLimitError) Is(target error) bool { return target == ErrRateLimited }
 func (c *Client) DownloadTorrentFile(downloadURL string) ([]byte, error) {
 	req, err := http.NewRequest(http.MethodGet, downloadURL, nil)
 	if err != nil {
@@ -420,6 +470,12 @@ func (c *Client) DownloadTorrentFile(downloadURL string) ([]byte, error) {
 	}
 	defer resp.Body.Close()
 
+	if resp.StatusCode == http.StatusTooManyRequests {
+		if d, ok := RetryAfter(resp.Header); ok {
+			return nil, &RateLimitError{RetryAfter: d, HasRetryAfter: true}
+		}
+		return nil, &RateLimitError{}
+	}
 	if resp.StatusCode >= 400 {
 		return nil, fmt.Errorf("mam http %d fetching torrent file", resp.StatusCode)
 	}

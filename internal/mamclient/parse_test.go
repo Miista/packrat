@@ -2,12 +2,14 @@ package mamclient
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // These tests run the real UnsatStatus/Search code paths against captured
@@ -463,5 +465,100 @@ func TestFixturesAreCompleteResponses(t *testing.T) {
 	}
 	if snatch["username"] != "FixtureUser" {
 		t.Errorf("username = %v, want the scrubbed placeholder FixtureUser", snatch["username"])
+	}
+}
+
+// TestDownloadTorrentFileSurfacesRateLimit pins 429 as a distinct, typed
+// error. The scheduler keys its backoff off this: a 429 means "slow down",
+// which is the opposite response to "this torrent failed, try the next
+// one". Folding it back into the generic mam-http error would silently
+// restore the old behaviour of hammering MAM once per remaining candidate.
+func TestDownloadTorrentFileSurfacesRateLimit(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusTooManyRequests)
+	}))
+	defer srv.Close()
+
+	_, err := New(Secret("x")).DownloadTorrentFile(srv.URL + "/tor/download.php?tid=1")
+	if err == nil {
+		t.Fatal("expected an error on HTTP 429")
+	}
+	if !errors.Is(err, ErrRateLimited) {
+		t.Errorf("error %v does not match ErrRateLimited; the scheduler cannot tell a rate limit from a dead torrent", err)
+	}
+}
+
+func TestDownloadTorrentFileReadsRetryAfter(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Retry-After", "120")
+		w.WriteHeader(http.StatusTooManyRequests)
+	}))
+	defer srv.Close()
+
+	_, err := New(Secret("x")).DownloadTorrentFile(srv.URL + "/tor/download.php?tid=1")
+	var rl *RateLimitError
+	if !errors.As(err, &rl) {
+		t.Fatalf("error %v is not a *RateLimitError", err)
+	}
+	if !rl.HasRetryAfter || rl.RetryAfter != 2*time.Minute {
+		t.Errorf("RetryAfter = %v (set=%v), want 2m", rl.RetryAfter, rl.HasRetryAfter)
+	}
+}
+
+// TestDownloadTorrentFileOtherErrorsAreNotRateLimits guards the other side:
+// an ordinary failure must NOT trigger the backoff path, or one broken
+// torrent would slow the whole batch down.
+func TestDownloadTorrentFileOtherErrorsAreNotRateLimits(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer srv.Close()
+
+	_, err := New(Secret("x")).DownloadTorrentFile(srv.URL + "/tor/download.php?tid=1")
+	if err == nil {
+		t.Fatal("expected an error on HTTP 404")
+	}
+	if errors.Is(err, ErrRateLimited) {
+		t.Error("a 404 must not be treated as a rate limit")
+	}
+}
+
+func TestRetryAfterParsing(t *testing.T) {
+	tests := []struct {
+		name   string
+		header string
+		want   time.Duration
+		wantOK bool
+	}{
+		{"delta seconds", "30", 30 * time.Second, true},
+		{"zero", "0", 0, true},
+		{"absent", "", 0, false},
+		{"negative", "-5", 0, false},
+		{"garbage", "soon", 0, false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			h := http.Header{}
+			if tc.header != "" {
+				h.Set("Retry-After", tc.header)
+			}
+			got, ok := RetryAfter(h)
+			if ok != tc.wantOK || got != tc.want {
+				t.Errorf("RetryAfter(%q) = (%v, %v), want (%v, %v)", tc.header, got, ok, tc.want, tc.wantOK)
+			}
+		})
+	}
+}
+
+// An HTTP-date Retry-After resolves to a future duration.
+func TestRetryAfterHTTPDate(t *testing.T) {
+	h := http.Header{}
+	h.Set("Retry-After", time.Now().Add(90*time.Second).UTC().Format(http.TimeFormat))
+	got, ok := RetryAfter(h)
+	if !ok {
+		t.Fatal("expected an HTTP-date Retry-After to parse")
+	}
+	if got < 80*time.Second || got > 95*time.Second {
+		t.Errorf("RetryAfter = %v, want roughly 90s", got)
 	}
 }

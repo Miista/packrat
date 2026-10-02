@@ -375,14 +375,39 @@ func (s *Scheduler) runOnce(ctx context.Context, dryRun bool) {
 	// show the error. Configurable via settings (default 2s); ctx-aware so
 	// Pause() still interrupts promptly instead of waiting out the delay
 	// first.
-	downloadDelay := time.Duration(cfg.DownloadDelaySeconds) * time.Second
+	//
+	// A 429 on top of that delay means MAM is still asking us to slow down,
+	// so the response is to back off — NOT to skip the candidate and
+	// immediately request the next one, which is what a plain "continue"
+	// would do, hammering the tracker once per remaining candidate. Each
+	// 429 instead doubles the delay (or honours Retry-After when MAM sends
+	// one), waits, and retries the same candidate. After
+	// maxRateLimitRetries consecutive 429s the run stops adding entirely
+	// and keeps whatever it already got; the next scheduled run picks up
+	// the remaining shortfall. None of this is user-configurable on
+	// purpose: backing off politely is not a preference.
+	const (
+		maxRateLimitRetries = 3
+		maxBackoff          = 5 * time.Minute
+	)
+	baseDelay := time.Duration(cfg.DownloadDelaySeconds) * time.Second
+	downloadDelay := baseDelay
+	rateLimited := false
+	retries := 0
 	added := make([]store.AddedTorrent, 0, len(candidates))
-	for i, res := range candidates {
+	// retrying tracks whether this iteration is a backoff retry of the same
+	// candidate rather than a move to the next one. Without it, a 429 on
+	// the very first candidate would retry with no delay at all: i-- makes
+	// i negative, the loop restores it to 0, and the "i > 0" guard below
+	// then skips the wait — hammering MAM exactly when it asked us to stop.
+	retrying := false
+	for i := 0; i < len(candidates); i++ {
+		res := candidates[i]
 		if ctx.Err() != nil {
 			cancelled = true
 			break
 		}
-		if i > 0 && !dryRun {
+		if (i > 0 || retrying) && !dryRun {
 			select {
 			case <-time.After(downloadDelay):
 			case <-ctx.Done():
@@ -404,9 +429,43 @@ func (s *Scheduler) runOnce(ctx context.Context, dryRun bool) {
 
 		torrentFile, err := mam.DownloadTorrentFile(res.DownloadURL)
 		if err != nil {
+			var rl *mamclient.RateLimitError
+			if errors.As(err, &rl) {
+				retries++
+				if retries > maxRateLimitRetries {
+					// Still rate limited after backing off repeatedly.
+					// Stop asking: keep what we have and let the next run
+					// try again later.
+					rateLimited = true
+					s.log.Warn().Int("added", len(added)).Int("needed", needed).
+						Msg("still rate limited after backing off, stopping this run")
+					break
+				}
+				// Honour MAM's own Retry-After when it sends one, otherwise
+				// double our delay. Either way, retry this same candidate
+				// rather than burning it.
+				if rl.HasRetryAfter && rl.RetryAfter > downloadDelay {
+					downloadDelay = rl.RetryAfter
+				} else {
+					downloadDelay *= 2
+				}
+				if downloadDelay > maxBackoff {
+					downloadDelay = maxBackoff
+				}
+				s.log.Warn().Dur("delay", downloadDelay).Int("attempt", retries).
+					Str("title", res.Title).Msg("rate limited by MAM, backing off")
+				i--
+				retrying = true
+				continue
+			}
 			s.log.Warn().Err(err).Str("title", res.Title).Msg("failed to fetch torrent file, skipping")
 			continue
 		}
+		// A clean download means the backoff worked; reset so one blip
+		// doesn't slow the whole remaining batch to a crawl.
+		retries = 0
+		retrying = false
+		downloadDelay = baseDelay
 		if err := dlClient.AddTorrent(torrentFile, res.Title); err != nil {
 			s.log.Warn().Err(err).Str("title", res.Title).Msg("failed to add torrent to download client, skipping")
 			continue
@@ -423,6 +482,8 @@ func (s *Scheduler) runOnce(ctx context.Context, dryRun bool) {
 	switch {
 	case cancelled:
 		entry.Result = fmt.Sprintf("Stopped: %s %d of %d needed torrents before the scheduler was deactivated.", strings.ToLower(verb), len(added), needed)
+	case rateLimited:
+		entry.Result = fmt.Sprintf("%s %d of %d needed torrents — MAM rate limited us, so this run stopped early. The next run will continue.", verb, len(added), needed)
 	case searchFailed:
 		entry.Result = fmt.Sprintf("%s %d of %d needed torrents before a search request failed.", verb, len(added), needed)
 	case noMoreResults && len(added) < needed:
