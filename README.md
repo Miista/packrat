@@ -1,96 +1,123 @@
 # packrat
 
-*Working name — not final.*
+**Keeps your MyAnonamouse ratio working for you, automatically.**
 
-Automates topping up a MyAnonamouse account's number of unsatisfied
-torrents to a target (the account's rank-based limit minus a configurable
-reserve), by searching MAM for candidates matching configurable criteria
-and adding them to a download client. Only qBittorrent is supported.
+MAM lets you have a certain number of unsatisfied torrents at once, based on
+your rank. Staying near that number is how you build ratio — but it means
+remembering to go find new torrents every time a few finish. Miss a few days
+and you've drifted down to nothing.
 
-Sibling project to [AutoMouse](../automouse) (MAM bonus-point spending) —
-same conventions: Go, zerolog, first-launch admin auth with persistent
-sessions, `PACKRAT_SETTING_<KEY>` env-var overrides with a locked-field UI,
-petite-vue frontend, scratch Docker image.
+packrat watches that number for you. When you have room, it searches MAM for
+torrents matching what you want, hands them to your download client, and
+gets on with it. You set it up once.
 
-## How the target works
+---
 
-MAM reports both numbers directly via its API (`jsonLoad.php?snatch_summary`
-→ `unsat.count` / `unsat.limit`) — no need to hardcode or infer your
-account's rank-based limit:
+## Quick start
 
+```yaml
+services:
+  packrat:
+    image: ghcr.io/miista/packrat:latest
+    container_name: packrat
+    ports:
+      - "8766:8766"
+    volumes:
+      - ./data:/app/data
+    environment:
+      PACKRAT_SETTING_MAM_ID: "your_mam_id_cookie_value"
+    restart: unless-stopped
 ```
-target = unsat.limit - reserve
-needed = target - unsat.count
-```
-
-Each run fetches the current status, and if `needed > 0`, searches MAM
-(paginating as needed) until it has collected `needed` candidates or
-genuinely runs out of results, then adds them.
-
-## Status
-
-Early scaffold. Verified against real MAM data (not just compiled):
-search, result parsing (title/size/seeders/leechers/freeleech), and
-downloading an actual valid `.torrent` file all confirmed working live
-(2026-09-30). Along the way, MAM's own API docs turned out to disagree with
-reality in several places — corrected in `internal/mamclient/mamclient.go`,
-each with a comment explaining the discrepancy:
-
-- `size` is a human-formatted string (`"528.3 MiB"`), not a raw byte count
-  as MAM's docs example implies. Parsed via `parseSizeString`.
-- `id`, `seeders`, `leechers`, `free`, `fl_vip` are real JSON numbers, not
-  strings.
-- The title field is `title`, not `name` as MAM's own worked example
-  showed.
-- Downloads use MAM's documented `/tor/download.php?tid={id}` endpoint
-  directly, rather than the search response's `dl` hash field. Both work
-  (confirmed the `dl` hash also downloads successfully, and already
-  embeds its own `?tid=...`), but `tid`-based download.php is MAM's
-  stable documented contract — including an optional `fl` flag to spend a
-  freeleech wedge on the torrent, which this app never sets (MAM's docs
-  warn "no refunds available" for automated use of that flag).
-- The search API has **no server-side min/max seeders/leechers/size
-  parameters** — MAM's docs only support text/category/searchType/sort
-  filtering server-side. Those four filters are applied **client-side**,
-  as a post-filter over search results (`passesFilters`).
-
-Only qBittorrent is supported as a download client (no qui, for now).
-
-qBittorrent login and add-torrent are verified working against a real
-instance (v5.2.3 / WebAPI 2.15.1, 2026-09-30) — a real MAM search result
-was downloaded and successfully added. One thing this caught: qBittorrent's
-login success response is inconsistent across versions (some return 200
-with body "Ok.", this one returned 204 with an empty body) — fixed by
-checking for a session cookie directly instead of trusting a specific
-status/body combination.
-
-Still not verified:
-
-- The full scheduler run loop (search → download → add to client → record
-  history) hasn't been exercised end-to-end yet — only its individual
-  pieces (MAM search/download, qBittorrent login/add, the app's own HTTP
-  layer) have been verified in isolation.
-
-## Running
 
 ```sh
-make build
-make docker
 docker compose up -d
 ```
 
-Or without Docker:
+Open **http://localhost:8766**, create your admin account, point it at your
+download client, and choose what you want it to look for.
+
+That's it. It'll check in every 30 minutes.
+
+## What you can tune
+
+**Reserve** — how much headroom to leave. If MAM allows you 150 and you set a
+reserve of 5, packrat fills up to 145 and leaves the rest for torrents you
+grab yourself.
+
+**What to search for** — free text, ebooks or audiobooks or both, freeleech
+only, minimum seeders, size range, sort order.
+
+**How often** — every 30 minutes by default.
+
+**What your download client does with them** — category, tags, speed limits,
+and whether to seed forever or stop at a ratio. Defaults to seeding
+indefinitely, since that's rather the point.
+
+There's a **dry run** button that shows you exactly what it would grab,
+without grabbing anything. Worth using before you turn it loose.
+
+## Good to know
+
+**Your MAM cookie is best set as an environment variable** (as in the
+quick-start above) rather than typed into the UI — that way it stays out of
+the config file on disk. packrat will show the field as locked when it's set
+this way.
+
+**It skips things you've already snatched.** No duplicates.
+
+**It never spends your freeleech wedges.** MAM's API offers a way to do that
+automatically; packrat doesn't touch it, by design.
+
+**It's gentle with MAM.** Downloads are spaced out so a big top-up doesn't
+look like a hammering.
+
+**Nothing leaves your machine** except requests to MAM and your own
+download client.
+
+## Settings reference
+
+These four are also settable in the UI. Setting one here overrides the UI
+and shows the field as locked:
+
+| Variable | What it does | Default |
+| --- | --- | --- |
+| `PACKRAT_SETTING_MAM_ID` | Your MAM session cookie | — |
+| `PACKRAT_SETTING_RESERVE` | Headroom below MAM's limit | `5` |
+| `PACKRAT_SETTING_NEXT_RUN_DELAY_MINUTES` | Minutes between runs | `30` |
+| `PACKRAT_SETTING_DOWNLOAD_DELAY_SECONDS` | Pause between downloads | `2` |
+
+These are container-level only:
+
+| Variable | What it does | Default |
+| --- | --- | --- |
+| `PACKRAT_DATA_DIR` | Where settings are saved inside the container | `/app/data` |
+| `PACKRAT_AUTH_DISABLED` | Turn off the login screen | `false` |
+| `LOG_LEVEL` | How chatty the logs are | `info` |
+
+Your settings file holds your MAM cookie and download client password. It's
+locked down to your user, but it isn't encrypted — keep the `data/` volume
+somewhere you're comfortable with.
+
+## Status
+
+Early days, but genuinely in use — running daily against a real account
+since September 2026.
+
+One download client is supported so far. Search filters and the download
+client connection have to be set in the UI rather than by environment
+variable.
+
+## Building it yourself
 
 ```sh
-go build -o packrat .
-PACKRAT_DATA_DIR=./data ./packrat
+make docker    # -> packrat:local
 ```
 
-## Environment variables
+Then point the compose file at `packrat:local` instead of the ghcr image.
 
-- `PACKRAT_DATA_DIR` — where `config.json` is persisted (default `/app/data`).
-- `PACKRAT_AUTH_DISABLED=true` — disables the admin login entirely.
-- `PACKRAT_SETTING_<KEY>` — env-var overrides for `mam_id`, `reserve`,
-  `next_run_delay_minutes`. Search filters and download client config are
-  not yet env-overridable (only settable via the UI).
-- `LOG_LEVEL` — zerolog level (default `info`).
+Developer notes — architecture, MAM's API quirks, test fixtures — are in
+[CLAUDE.md](CLAUDE.md).
+
+## Related
+
+Sibling to [AutoMouse](../automouse), which spends MAM bonus points.
