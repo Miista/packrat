@@ -116,6 +116,10 @@ func (s *Scheduler) StartSchedule() error {
 		st.SchedulerOn = true
 		st.Paused = false
 		st.NextRunTime = &next
+		// Starting the scheduler is an explicit "go now" — drop any idle
+		// backoff so the user gets the configured interval, not a 6-hour
+		// gap inherited from before they paused it.
+		st.ConsecutiveIdleRuns = 0
 	})
 }
 
@@ -175,7 +179,7 @@ func (s *Scheduler) RunDryNow() bool {
 			s.running = false
 			s.mu.Unlock()
 		}()
-		s.runOnce(context.Background(), true)
+		_ = s.runOnce(context.Background(), true)
 	}()
 	return true
 }
@@ -216,18 +220,73 @@ func (s *Scheduler) runAndReschedule() {
 		cancel()
 	}()
 
-	s.runOnce(ctx, false)
+	idle := s.runOnce(ctx, false)
 
 	_ = s.store.Update(func(st *store.State) {
+		if idle {
+			st.ConsecutiveIdleRuns++
+		} else {
+			st.ConsecutiveIdleRuns = 0
+		}
 		if st.SchedulerOn && !st.Paused {
-			delay := time.Duration(st.Settings.NextRunDelayMinutes) * time.Minute
-			next := time.Now().Add(delay)
+			next := time.Now().Add(nextDelay(st.Settings.NextRunDelayMinutes, st.ConsecutiveIdleRuns))
 			st.NextRunTime = &next
 		}
 	})
 }
 
-func (s *Scheduler) runOnce(ctx context.Context, dryRun bool) {
+// Idle backoff. An unsatisfied torrent only frees up its slot after
+// seeding for 72 hours, so once the account sits at target there is
+// genuinely nothing for a run to do until one of those crosses the line —
+// hours away, not minutes. Polling every 30 minutes through that window is
+// pure waste: the live instance recorded 48 consecutive runs over 24 hours
+// reporting the identical "already at target" result (2026-10-02).
+//
+// So after idleThreshold consecutive idle runs, start doubling the gap,
+// capped at maxIdleDelay. Any run that actually adds something resets the
+// streak immediately, because torrents turning over means slots are
+// opening again. Note the signal is "needed <= 0", not "the numbers didn't
+// change" — unsat.count sits pinned at its target the whole time, so it
+// never changes either way.
+const (
+	// Back off only after this many consecutive idle runs, so a brief
+	// at-target moment doesn't immediately slow the schedule down.
+	idleThreshold = 3
+	// Ceiling on the backed-off interval. Well under the 72-hour seeding
+	// window, so packrat still notices slots opening reasonably promptly.
+	maxIdleDelay = 6 * time.Hour
+)
+
+// nextDelay returns how long to wait before the next run, given the
+// configured base interval and how many consecutive idle runs precede it.
+func nextDelay(baseMinutes, consecutiveIdle int) time.Duration {
+	base := time.Duration(baseMinutes) * time.Minute
+	if base <= 0 {
+		base = 30 * time.Minute
+	}
+	if consecutiveIdle < idleThreshold {
+		return base
+	}
+	// Double once per idle run past the threshold: 2x, 4x, 8x, ...
+	delay := base
+	for i := idleThreshold; i < consecutiveIdle; i++ {
+		delay *= 2
+		if delay >= maxIdleDelay {
+			return maxIdleDelay
+		}
+	}
+	if delay > maxIdleDelay {
+		return maxIdleDelay
+	}
+	return delay
+}
+
+// runOnce executes one top-up pass. It returns true when the run was
+// "idle": it reached MAM successfully and found nothing to add because the
+// account is already at target. Only that specific outcome feeds the idle
+// backoff — an error, a cancellation or a run that genuinely added
+// something must not be mistaken for a quiet account.
+func (s *Scheduler) runOnce(ctx context.Context, dryRun bool) (idle bool) {
 	startedAt := time.Now()
 	entry := store.HistoryEntry{StartedAt: startedAt, CreatedAt: startedAt, Result: "Completed", DryRun: dryRun}
 
@@ -241,7 +300,7 @@ func (s *Scheduler) runOnce(ctx context.Context, dryRun bool) {
 		entry.Result = "No Mam Session_ID configured."
 		s.log.Warn().Msg(entry.Result)
 		s.appendHistory(entry)
-		return
+		return false
 	}
 
 	mam := mamclient.New(mamclient.Secret(cfg.MamID))
@@ -251,7 +310,7 @@ func (s *Scheduler) runOnce(ctx context.Context, dryRun bool) {
 		entry.Result = fmt.Sprintf("Failed to fetch unsatisfied-torrent status: %v", err)
 		s.log.Warn().Err(err).Msg(entry.Result)
 		s.appendHistory(entry)
-		return
+		return false
 	}
 	s.recordUnsat(unsat)
 	entry.UnsatCount = unsat.Count
@@ -269,7 +328,9 @@ func (s *Scheduler) runOnce(ctx context.Context, dryRun bool) {
 		entry.NeededCount = 0
 		s.appendHistory(entry)
 		s.log.Info().Int("unsat_count", unsat.Count).Int("target", target).Msg("top-up run complete, nothing needed")
-		return
+		// The one genuinely idle outcome: MAM answered, and there is
+		// simply no room to add anything.
+		return true
 	}
 	entry.NeededCount = needed
 
@@ -281,7 +342,7 @@ func (s *Scheduler) runOnce(ctx context.Context, dryRun bool) {
 			entry.Result = fmt.Sprintf("Download client not configured: %v", err)
 			s.log.Warn().Err(err).Msg(entry.Result)
 			s.appendHistory(entry)
-			return
+			return false
 		}
 	}
 
@@ -499,6 +560,7 @@ func (s *Scheduler) runOnce(ctx context.Context, dryRun bool) {
 	}
 	s.appendHistory(entry)
 	s.log.Info().Int("added", len(added)).Int("needed", needed).Bool("dry_run", dryRun).Msg("run complete")
+	return false
 }
 
 func (s *Scheduler) updateTotals(added int) {

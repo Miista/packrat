@@ -176,14 +176,19 @@ type Auth struct {
 
 // State is the full persisted document.
 type State struct {
-	Admin       *Admin         `json:"admin,omitempty"`
-	Auth        Auth           `json:"auth"`
-	Settings    Settings       `json:"settings"`
-	Totals      Totals         `json:"totals"`
-	SchedulerOn bool           `json:"scheduler_enabled"`
-	Paused      bool           `json:"paused"`
-	NextRunTime *time.Time     `json:"next_run_time,omitempty"`
-	History     []HistoryEntry `json:"history"`
+	Admin       *Admin     `json:"admin,omitempty"`
+	Auth        Auth       `json:"auth"`
+	Settings    Settings   `json:"settings"`
+	Totals      Totals     `json:"totals"`
+	SchedulerOn bool       `json:"scheduler_enabled"`
+	Paused      bool       `json:"paused"`
+	NextRunTime *time.Time `json:"next_run_time,omitempty"`
+	// ConsecutiveIdleRuns counts runs in a row that found nothing to add
+	// because the account was already at target. It drives the scheduler's
+	// idle backoff (see scheduler.nextDelay) and persists so a restart
+	// doesn't reset a long idle streak back to polling every few minutes.
+	ConsecutiveIdleRuns int            `json:"consecutive_idle_runs"`
+	History             []HistoryEntry `json:"history"`
 }
 
 const maxHistory = 300

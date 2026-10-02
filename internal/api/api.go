@@ -163,9 +163,13 @@ func (s *Server) handleState(w http.ResponseWriter, r *http.Request) {
 		"paused":            st.Paused,
 		"running":           s.scheduler.IsRunning(),
 		"next_run_time":     st.NextRunTime,
-		"unsat_count":       unsat.Count,
-		"unsat_limit":       unsat.Limit,
-		"have_unsat":        haveUnsat,
+		// Surfaced so the UI can explain a long gap between runs: once the
+		// account sits at target there is nothing to do until a torrent
+		// finishes seeding, so the scheduler stretches its interval.
+		"consecutive_idle_runs": st.ConsecutiveIdleRuns,
+		"unsat_count":           unsat.Count,
+		"unsat_limit":           unsat.Limit,
+		"have_unsat":            haveUnsat,
 	})
 }
 
