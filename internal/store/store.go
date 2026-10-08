@@ -102,17 +102,29 @@ type Settings struct {
 	// during a run's add phase. MAM rate-limits (HTTP 429) a burst of
 	// downloads fired back-to-back — confirmed live, 2026-10-01: a batch
 	// of ~90 tripped it after roughly the first 10 with no delay at all.
-	DownloadDelaySeconds int            `json:"download_delay_seconds"`
-	SearchFilters        SearchFilters  `json:"search_filters"`
-	DownloadClient       DownloadClient `json:"download_client"`
+	DownloadDelaySeconds int `json:"download_delay_seconds"`
+	// MaxAddAttemptsPerNeeded bounds how many add attempts (successful or
+	// not) a single run will make, as a multiple of how many torrents it
+	// needs: attempts cap = needed * MaxAddAttemptsPerNeeded. Without this,
+	// a run that keeps drawing already-owned duplicates (qBittorrent 409s)
+	// or other per-candidate failures could in principle keep paging MAM
+	// for replacements until maxPages is exhausted (1000 raw rows) before
+	// giving up — confirmed live, 2026-10-04: a run needing 6 drew 6
+	// candidates that were all duplicates of torrents already in
+	// qBittorrent under different filenames, and ended with 0 added
+	// instead of searching further for genuinely new candidates.
+	MaxAddAttemptsPerNeeded int            `json:"max_add_attempts_per_needed"`
+	SearchFilters           SearchFilters  `json:"search_filters"`
+	DownloadClient          DownloadClient `json:"download_client"`
 }
 
 // DefaultSettings returns the baseline settings for a fresh install.
 func DefaultSettings() Settings {
 	return Settings{
-		Reserve:              5,
-		NextRunDelayMinutes:  30,
-		DownloadDelaySeconds: 2,
+		Reserve:                 5,
+		NextRunDelayMinutes:     30,
+		DownloadDelaySeconds:    2,
+		MaxAddAttemptsPerNeeded: 3,
 		SearchFilters: SearchFilters{
 			SortType: "default",
 		},

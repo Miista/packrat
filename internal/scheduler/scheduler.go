@@ -386,14 +386,17 @@ func (s *Scheduler) runOnce(ctx context.Context, dryRun bool) (idle bool) {
 		}
 	}
 
-	// Phase 1: collect candidates across as many pages as it takes to reach
-	// `needed`, WITHOUT downloading or adding anything yet. Only once this
-	// phase has run its course (either it collected enough, or genuinely
-	// ran out of search results / hit an error) does phase 2 below start
-	// downloading and adding — so a run never ends up having added a
-	// partial batch just because a later search page came back short or
-	// failed. maxPages bounds phase 1 so an exhausted search can't loop
-	// forever.
+	// Candidates are fetched from MAM on demand rather than all up front:
+	// a page is only requested when the add loop below is about to run out
+	// of untried candidates and still needs more. This lets a run recover
+	// from per-candidate failures (duplicate/already-in-qBittorrent 409s,
+	// transient download errors) by pulling in replacements instead of
+	// ending early just because the originally fetched batch didn't pan
+	// out — confirmed live, 2026-10-04: a run needing 6 drew 6 candidates
+	// that were all duplicates of torrents already in qBittorrent under
+	// different filenames (MAM's own my_snatched flag is per-torrent-ID and
+	// doesn't catch a different release of a work already held), and ended
+	// with 0 added instead of searching further for genuinely new ones.
 	//
 	// rawPageSize/rawCursor track MAM's own result-set position, which is
 	// NOT the same as len(candidates): Search() applies client-side filters
@@ -408,67 +411,83 @@ func (s *Scheduler) runOnce(ctx context.Context, dryRun bool) (idle bool) {
 	// after less than the needed count. A raw page only means genuine
 	// exhaustion when MAM returns zero raw rows for it — Search's rawCount
 	// return value, not len(results).
+	//
+	// maxPages bounds total search pages fetched across the whole run, and
+	// maxAttempts (needed * MaxAddAttemptsPerNeeded, configurable) bounds
+	// total add attempts — together they guarantee the run terminates even
+	// if every candidate MAM offers turns out to be unusable. Hitting
+	// maxAttempts is reported distinctly in the result message because it
+	// will most likely recur on the next run too: the fix is widening the
+	// search filters, not retrying.
 	const maxPages = 10
 	const rawPageSize = 100
+	maxAttempts := needed * cfg.MaxAddAttemptsPerNeeded
+	if maxAttempts <= 0 {
+		maxAttempts = needed
+	}
 	cancelled := false
 	noMoreResults := false
 	searchFailed := false
+	attemptsExhausted := false
 	candidates := make([]mamclient.SearchResult, 0, needed)
 	rawCursor := 0
+	page := 0
+	added := make([]store.AddedTorrent, 0, needed)
+	nextCandidate := 0 // index into candidates of the next untried one
 
-	for page := 0; page < maxPages && len(candidates) < needed; page++ {
-		if ctx.Err() != nil {
-			cancelled = true
-			break
-		}
-
-		filters := mamclient.SearchFilters{
-			Text:          cfg.SearchFilters.Text,
-			MinSeeders:    cfg.SearchFilters.MinSeeders,
-			MaxSeeders:    cfg.SearchFilters.MaxSeeders,
-			MinLeechers:   cfg.SearchFilters.MinLeechers,
-			MaxLeechers:   cfg.SearchFilters.MaxLeechers,
-			MinSizeMB:     cfg.SearchFilters.MinSizeMB,
-			MaxSizeMB:     cfg.SearchFilters.MaxSizeMB,
-			FreeleechOnly: cfg.SearchFilters.FreeleechOnly,
-			Category:      mamCategoryFor(cfg.SearchFilters.Category),
-			SortType:      cfg.SearchFilters.SortType,
-			PerPage:       rawPageSize,
-			StartNumber:   rawCursor,
-		}
-		results, rawCount, err := mam.Search(filters)
-		if err != nil {
-			entry.Result = fmt.Sprintf("Search failed: %v", err)
-			s.log.Warn().Err(err).Msg(entry.Result)
-			searchFailed = true
-			break
-		}
-		rawCursor += rawPageSize
-		if rawCount == 0 {
-			// MAM returned zero raw rows for this page — genuinely nothing
-			// more to offer, not just a page that got filtered down to
-			// nothing.
-			noMoreResults = true
-			break
-		}
-
-		for _, res := range results {
-			if len(candidates) >= needed {
-				break
+	fetchMore := func() {
+		// Keep fetching until there are enough untried candidates left to
+		// plausibly reach `needed` additions, not just until the candidate
+		// slice has ever reached `needed` entries — otherwise a run whose
+		// early candidates failed would never top up again.
+		for page < maxPages && len(candidates)-nextCandidate < needed-len(added) && !noMoreResults && !searchFailed {
+			if ctx.Err() != nil {
+				cancelled = true
+				return
 			}
-			if res.DownloadURL == "" {
-				s.log.Warn().Str("title", res.Title).Msg("search result had no download URL, skipping")
-				continue
+			filters := mamclient.SearchFilters{
+				Text:          cfg.SearchFilters.Text,
+				MinSeeders:    cfg.SearchFilters.MinSeeders,
+				MaxSeeders:    cfg.SearchFilters.MaxSeeders,
+				MinLeechers:   cfg.SearchFilters.MinLeechers,
+				MaxLeechers:   cfg.SearchFilters.MaxLeechers,
+				MinSizeMB:     cfg.SearchFilters.MinSizeMB,
+				MaxSizeMB:     cfg.SearchFilters.MaxSizeMB,
+				FreeleechOnly: cfg.SearchFilters.FreeleechOnly,
+				Category:      mamCategoryFor(cfg.SearchFilters.Category),
+				SortType:      cfg.SearchFilters.SortType,
+				PerPage:       rawPageSize,
+				StartNumber:   rawCursor,
 			}
-			candidates = append(candidates, res)
+			page++
+			results, rawCount, err := mam.Search(filters)
+			if err != nil {
+				entry.Result = fmt.Sprintf("Search failed: %v", err)
+				s.log.Warn().Err(err).Msg(entry.Result)
+				searchFailed = true
+				return
+			}
+			rawCursor += rawPageSize
+			if rawCount == 0 {
+				// MAM returned zero raw rows for this page — genuinely
+				// nothing more to offer, not just a page that got filtered
+				// down to nothing.
+				noMoreResults = true
+				return
+			}
+
+			for _, res := range results {
+				if res.DownloadURL == "" {
+					s.log.Warn().Str("title", res.Title).Msg("search result had no download URL, skipping")
+					continue
+				}
+				candidates = append(candidates, res)
+			}
 		}
 	}
 
-	// Phase 2: only now, with candidates collected (however many phase 1
-	// managed), actually download and add them. Cancellation is checked
-	// here too — Pause() mid-phase-2 still stops before starting a new
-	// add, same as before.
-	//
+	fetchMore()
+
 	// downloadDelay throttles consecutive MAM download requests. Without
 	// it, a batch of ~90 downloads fired back-to-back in under a second
 	// tripped MAM's rate limiting (HTTP 429) after roughly the first 10 —
@@ -495,20 +514,41 @@ func (s *Scheduler) runOnce(ctx context.Context, dryRun bool) (idle bool) {
 	downloadDelay := baseDelay
 	rateLimited := false
 	retries := 0
-	added := make([]store.AddedTorrent, 0, len(candidates))
+	attempts := 0
+	firstAttempt := true
 	// retrying tracks whether this iteration is a backoff retry of the same
-	// candidate rather than a move to the next one. Without it, a 429 on
-	// the very first candidate would retry with no delay at all: i-- makes
-	// i negative, the loop restores it to 0, and the "i > 0" guard below
-	// then skips the wait — hammering MAM exactly when it asked us to stop.
+	// candidate rather than a move to the next one (nextCandidate is only
+	// advanced on a non-retry outcome). Without it, a 429 right after the
+	// very first attempt would skip the delay on its retry, since
+	// firstAttempt would otherwise already be false — hammering MAM exactly
+	// when it asked us to stop.
 	retrying := false
-	for i := 0; i < len(candidates); i++ {
-		res := candidates[i]
+	for {
+		if len(added) >= needed {
+			break
+		}
+		if attempts >= maxAttempts {
+			attemptsExhausted = true
+			break
+		}
+		if !retrying && nextCandidate >= len(candidates) {
+			// Out of untried candidates — top up before continuing.
+			fetchMore()
+			if cancelled {
+				break
+			}
+			if nextCandidate >= len(candidates) {
+				// fetchMore couldn't produce any more (exhausted, failed,
+				// or hit maxPages) — nothing left to try.
+				break
+			}
+		}
+		res := candidates[nextCandidate]
 		if ctx.Err() != nil {
 			cancelled = true
 			break
 		}
-		if (i > 0 || retrying) && !dryRun {
+		if (!firstAttempt || retrying) && !dryRun {
 			select {
 			case <-time.After(downloadDelay):
 			case <-ctx.Done():
@@ -519,10 +559,14 @@ func (s *Scheduler) runOnce(ctx context.Context, dryRun bool) (idle bool) {
 			}
 		}
 
+		firstAttempt = false
+
 		if dryRun {
 			// Dry run: candidate is a real search result that passed
 			// every filter, but nothing is downloaded or added — just
 			// recorded as what this run would have picked.
+			attempts++
+			nextCandidate++
 			added = append(added, store.AddedTorrent{ID: res.ID, Title: res.Title, Size: res.SizeBytes})
 			s.log.Info().Str("title", res.Title).Int64("size", res.SizeBytes).Msg("dry run: would add torrent")
 			continue
@@ -544,7 +588,7 @@ func (s *Scheduler) runOnce(ctx context.Context, dryRun bool) (idle bool) {
 				}
 				// Honour MAM's own Retry-After when it sends one, otherwise
 				// double our delay. Either way, retry this same candidate
-				// rather than burning it.
+				// (nextCandidate is NOT advanced) rather than burning it.
 				if rl.HasRetryAfter && rl.RetryAfter > downloadDelay {
 					downloadDelay = rl.RetryAfter
 				} else {
@@ -555,10 +599,11 @@ func (s *Scheduler) runOnce(ctx context.Context, dryRun bool) (idle bool) {
 				}
 				s.log.Warn().Dur("delay", downloadDelay).Int("attempt", retries).
 					Str("title", res.Title).Msg("rate limited by MAM, backing off")
-				i--
 				retrying = true
 				continue
 			}
+			attempts++
+			nextCandidate++
 			s.log.Warn().Err(err).Str("title", res.Title).Msg("failed to fetch torrent file, skipping")
 			continue
 		}
@@ -567,6 +612,8 @@ func (s *Scheduler) runOnce(ctx context.Context, dryRun bool) (idle bool) {
 		retries = 0
 		retrying = false
 		downloadDelay = baseDelay
+		attempts++
+		nextCandidate++
 		if err := dlClient.AddTorrent(torrentFile, res.Title); err != nil {
 			s.log.Warn().Err(err).Str("title", res.Title).Msg("failed to add torrent to download client, skipping")
 			continue
@@ -587,6 +634,8 @@ func (s *Scheduler) runOnce(ctx context.Context, dryRun bool) (idle bool) {
 		entry.Result = fmt.Sprintf("%s %d of %d needed torrents — MAM rate limited us, so this run stopped early. The next run will continue.", verb, len(added), needed)
 	case searchFailed:
 		entry.Result = fmt.Sprintf("%s %d of %d needed torrents before a search request failed.", verb, len(added), needed)
+	case attemptsExhausted:
+		entry.Result = fmt.Sprintf("%s %d of %d needed torrents — hit the attempt limit (%d) after too many duplicate or failed candidates; this will likely recur until search filters are widened.", verb, len(added), needed, maxAttempts)
 	case noMoreResults && len(added) < needed:
 		entry.Result = fmt.Sprintf("%s %d of %d needed torrents — MAM has no more matching candidates for the current filters.", verb, len(added), needed)
 	case len(added) < needed:

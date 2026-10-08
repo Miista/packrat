@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strings"
 	"sync"
 	"testing"
 
@@ -72,16 +73,23 @@ func (f *fakeMAM) downloadCount() int {
 	return len(f.downloadCalls)
 }
 
-// fakeDownloadClient records what was added.
+// fakeDownloadClient records what was added. rejectTitles/rejectAll let a
+// test simulate qBittorrent rejecting specific (or all) candidates, e.g.
+// with a "409: Conflict" duplicate error.
 type fakeDownloadClient struct {
-	mu    sync.Mutex
-	added []string
-	err   error
+	mu           sync.Mutex
+	added        []string
+	err          error
+	rejectTitles map[string]bool
+	rejectAll    bool
 }
 
 func (c *fakeDownloadClient) AddTorrent(torrentFile []byte, name string) error {
 	if c.err != nil {
 		return c.err
+	}
+	if c.rejectAll || c.rejectTitles[name] {
+		return errors.New("qbittorrent add-torrent failed: http 409: Conflict")
 	}
 	c.mu.Lock()
 	c.added = append(c.added, name)
@@ -376,7 +384,11 @@ func TestRunOnceSkipsCandidateOnOrdinaryError(t *testing.T) {
 	mam := &fakeMAM{
 		unsat: mamclient.UnsatStatus{Count: 142, Limit: 150},
 		searchFn: func(f mamclient.SearchFilters) ([]mamclient.SearchResult, int, error) {
-			return results(3, 1), 3, nil
+			// Each page returns fresh, non-overlapping candidates, like a
+			// real MAM search cursor would — needed so a failed candidate
+			// gets backfilled by a genuinely new one, not a repeat of
+			// itself.
+			return results(3, f.StartNumber+1), 3, nil
 		},
 		downloadFn: func(url string) ([]byte, error) {
 			if url == "https://mam.test/tor/download.php?tid=1" {
@@ -390,11 +402,11 @@ func TestRunOnceSkipsCandidateOnOrdinaryError(t *testing.T) {
 
 	sched.runOnce(context.Background(), false)
 
-	if dl.count() != 2 {
-		t.Errorf("added %d, want 2: a dead torrent is skipped, the rest still added", dl.count())
+	if dl.count() != 3 {
+		t.Errorf("added %d, want 3: a dead torrent is skipped and backfilled by a fresh candidate", dl.count())
 	}
-	if mam.downloadCount() != 3 {
-		t.Errorf("made %d download attempts, want 3: a 404 must not be retried", mam.downloadCount())
+	if mam.downloadCount() != 4 {
+		t.Errorf("made %d download attempts, want 4: the dead torrent (not retried) plus one backfill", mam.downloadCount())
 	}
 }
 
@@ -441,5 +453,72 @@ func TestRunOnceWithoutCookie(t *testing.T) {
 	}
 	if mam.searchCount() != 0 {
 		t.Error("searched MAM without a cookie")
+	}
+}
+
+// Live bug, 2026-10-04: a run needing N drew N candidates that all turned
+// out to be duplicates already in qBittorrent (AddTorrent returning a
+// "409: Conflict"-style error), and ended with 0 added instead of pulling
+// in replacements. Every candidate on the first page fails the same way;
+// the second page is clean.
+func TestRunOnceBackfillsAfterAllCandidatesFail(t *testing.T) {
+	mam := &fakeMAM{
+		unsat: mamclient.UnsatStatus{Count: 142, Limit: 150}, // needed = 3
+		searchFn: func(f mamclient.SearchFilters) ([]mamclient.SearchResult, int, error) {
+			return results(3, f.StartNumber+1), 3, nil
+		},
+		downloadFn: func(url string) ([]byte, error) {
+			return []byte("torrent"), nil
+		},
+	}
+	// Reject exactly the first page's three candidates (tids 1-3) as
+	// duplicates; anything from a later page succeeds.
+	dl := &fakeDownloadClient{rejectTitles: map[string]bool{"Torrent 1": true, "Torrent 2": true, "Torrent 3": true}}
+	sched, _ := newTestScheduler(t, mam, dl)
+
+	sched.runOnce(context.Background(), false)
+
+	if dl.count() != 3 {
+		t.Errorf("added %d, want 3: a run must back-fill when a whole page of candidates fails", dl.count())
+	}
+	if mam.searchCount() < 2 {
+		t.Errorf("searched %d time(s), want at least 2: must fetch a second page after the first is exhausted by failures", mam.searchCount())
+	}
+}
+
+// If MAM keeps handing back candidates that all fail (e.g. every one is
+// already in qBittorrent) a run must give up after a bounded number of
+// attempts rather than paging MAM forever, and must say so distinctly so
+// the user knows to widen their search filters rather than just retry.
+func TestRunOnceStopsAtAttemptLimit(t *testing.T) {
+	mam := &fakeMAM{
+		unsat: mamclient.UnsatStatus{Count: 140, Limit: 150}, // needed = 5
+		searchFn: func(f mamclient.SearchFilters) ([]mamclient.SearchResult, int, error) {
+			return results(100, f.StartNumber+1), 100, nil
+		},
+		downloadFn: func(url string) ([]byte, error) {
+			return []byte("torrent"), nil
+		},
+	}
+	dl := &fakeDownloadClient{rejectAll: true}
+	sched, st := newTestScheduler(t, mam, dl)
+	if err := st.Update(func(s *store.State) {
+		s.Settings.MaxAddAttemptsPerNeeded = 2 // needed(5) * 2 = 10 attempt cap
+	}); err != nil {
+		t.Fatalf("seeding settings: %v", err)
+	}
+
+	sched.runOnce(context.Background(), false)
+
+	if dl.count() != 0 {
+		t.Errorf("added %d, want 0: every candidate was rejected", dl.count())
+	}
+	if got := mam.downloadCount(); got != 10 {
+		t.Errorf("made %d download attempts, want 10 (the configured attempt cap), got search calls instead of stopping", got)
+	}
+	var last store.HistoryEntry
+	st.View(func(s store.State) { last = s.History[len(s.History)-1] })
+	if !strings.Contains(last.Result, "attempt limit") {
+		t.Errorf("result = %q, want it to mention the attempt limit so the user knows to widen filters", last.Result)
 	}
 }
