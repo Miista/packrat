@@ -22,6 +22,11 @@ import (
 
 const pollInterval = 5 * time.Second
 
+// postAddRefreshDelay is how long after a run that added torrents we re-read
+// the unsat status. A var so tests can shorten it. The 3 minutes is a guess at
+// MAM's lag, not a measured value — adjust once observed live.
+var postAddRefreshDelay = 3 * time.Minute
+
 // MamAPI is the slice of MAM's client that the scheduler actually uses.
 // Declared here, in the consumer, rather than in mamclient: *mamclient.Client
 // satisfies it implicitly, and tests can substitute a fake without touching
@@ -260,7 +265,17 @@ func (s *Scheduler) runAndReschedule() {
 		cancel()
 	}()
 
+	addedBefore := s.cumulativeAdded()
 	idle := s.runOnce(ctx, false)
+
+	// The unsat count recorded at the start of the run is stale once torrents
+	// have been added, and MAM doesn't reflect new snatches immediately, so
+	// reading it straight away would show the old number too. Do one
+	// read-only refresh a few minutes later instead. Detected via the
+	// cumulative total so runOnce's signature stays untouched.
+	if s.cumulativeAdded() > addedBefore {
+		time.AfterFunc(postAddRefreshDelay, s.RefreshUnsat)
+	}
 
 	_ = s.store.Update(func(st *store.State) {
 		if idle {
@@ -650,6 +665,11 @@ func (s *Scheduler) runOnce(ctx context.Context, dryRun bool) (idle bool) {
 	s.appendHistory(entry)
 	s.log.Info().Int("added", len(added)).Int("needed", needed).Bool("dry_run", dryRun).Msg("run complete")
 	return false
+}
+
+func (s *Scheduler) cumulativeAdded() (n int) {
+	s.store.View(func(st store.State) { n = st.Totals.CumulativeTorrentsAdded })
+	return n
 }
 
 func (s *Scheduler) updateTotals(added int) {
