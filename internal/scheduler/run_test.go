@@ -244,10 +244,13 @@ func TestRunOnceStopsOnZeroRawCount(t *testing.T) {
 	}
 	sched, st := newTestScheduler(t, mam, &fakeDownloadClient{})
 
-	sched.runOnce(context.Background(), false)
+	idle := sched.runOnce(context.Background(), false)
 
 	if mam.searchCount() != 1 {
 		t.Errorf("made %d searches, want 1: a zero-row page means MAM is exhausted", mam.searchCount())
+	}
+	if !idle {
+		t.Error("an exhausted pool with nothing added must report idle so the backoff applies")
 	}
 	var last store.HistoryEntry
 	st.View(func(s store.State) { last = s.History[len(s.History)-1] })

@@ -338,9 +338,10 @@ func nextDelay(baseMinutes, consecutiveIdle int) time.Duration {
 
 // runOnce executes one top-up pass. It returns true when the run was
 // "idle": it reached MAM successfully and found nothing to add because the
-// account is already at target. Only that specific outcome feeds the idle
-// backoff — an error, a cancellation or a run that genuinely added
-// something must not be mistaken for a quiet account.
+// account is already at target, or because MAM has no rows left for the
+// current filters. Only those outcomes feed the idle backoff — an error, a
+// cancellation or a run that genuinely added something must not be mistaken
+// for a quiet account.
 func (s *Scheduler) runOnce(ctx context.Context, dryRun bool) (idle bool) {
 	startedAt := time.Now()
 	entry := store.HistoryEntry{StartedAt: startedAt, CreatedAt: startedAt, Result: "Completed", DryRun: dryRun}
@@ -482,7 +483,6 @@ func (s *Scheduler) runOnce(ctx context.Context, dryRun bool) (idle bool) {
 				searchFailed = true
 				return
 			}
-			rawCursor += rawPageSize
 			if rawCount == 0 {
 				// MAM returned zero raw rows for this page — genuinely
 				// nothing more to offer, not just a page that got filtered
@@ -490,6 +490,7 @@ func (s *Scheduler) runOnce(ctx context.Context, dryRun bool) (idle bool) {
 				noMoreResults = true
 				return
 			}
+			rawCursor += rawPageSize
 
 			for _, res := range results {
 				if res.DownloadURL == "" {
@@ -663,8 +664,19 @@ func (s *Scheduler) runOnce(ctx context.Context, dryRun bool) (idle bool) {
 		s.updateTotals(len(added))
 	}
 	s.appendHistory(entry)
-	s.log.Info().Int("added", len(added)).Int("needed", needed).Bool("dry_run", dryRun).Msg("run complete")
-	return false
+	// Exhausted pool: MAM ran out of rows for the current filters and nothing
+	// was added, so the next run will see exactly the same empty result until
+	// either a snatched torrent turns over or the filters change. Observed
+	// live 2026-10-11: freeleech + ebook + max 120 MB + sizeAsc ran dry and
+	// 30 identical "no more matching candidates" runs followed at 30-minute
+	// intervals with 81 slots open. Treat it as idle so the same doubling
+	// backoff applies; a run that adds anything resets the streak.
+	exhausted := !dryRun && noMoreResults && len(added) == 0 && !cancelled && !searchFailed && !rateLimited
+	s.log.Info().Int("added", len(added)).Int("needed", needed).Bool("dry_run", dryRun).
+		Int("pages_fetched", page).Int("raw_rows_scanned", rawCursor).Int("candidates", len(candidates)).
+		Int("attempts", attempts).Bool("pool_exhausted", noMoreResults).
+		Str("result", entry.Result).Msg("run complete")
+	return exhausted
 }
 
 func (s *Scheduler) cumulativeAdded() (n int) {
