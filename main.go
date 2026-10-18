@@ -1,11 +1,12 @@
 // Command packrat automates topping up a MyAnonamouse account's number of
 // unsatisfied/downloading torrents to a target (the account's rank-based
 // limit minus a configurable reserve), searching MAM and adding matching
-// torrents to a configured download client. Behind a first-launch admin
-// login and env-var-overridable settings.
+// torrents to a configured download client. Behind an authy sign-in gate
+// (OIDC, or a first-launch local account) and env-var-overridable settings.
 package main
 
 import (
+	"context"
 	"net/http"
 	"os"
 	"time"
@@ -14,8 +15,8 @@ import (
 
 	"github.com/rs/zerolog"
 
+	"github.com/miista/authy"
 	"github.com/miista/packrat/internal/api"
-	"github.com/miista/packrat/internal/auth"
 	"github.com/miista/packrat/internal/scheduler"
 	"github.com/miista/packrat/internal/store"
 )
@@ -38,31 +39,42 @@ func main() {
 		log.Fatal().Err(err).Msg("failed to open state store")
 	}
 
-	authManager, err := auth.NewManager(st)
+	// Sign-in is owned by authy: OIDC when the PACKRAT_OIDC_* variables are
+	// set, otherwise a local account the first visitor creates.
+	// PACKRAT_AUTH_DISABLED=true turns the gate off (gate is nil and Wrap
+	// leaves the handler unchanged). Misconfigured: refuse to start rather
+	// than serve the dashboard unprotected.
+	gate, err := authy.FromEnv(context.Background(), "packrat")
 	if err != nil {
-		log.Fatal().Err(err).Msg("failed to initialize auth")
+		log.Fatal().Err(err).Msg("invalid auth configuration")
+	}
+	if gate == nil {
+		log.Warn().Msg("login is OFF (PACKRAT_AUTH_DISABLED): everyone who can reach this port controls your downloads")
 	}
 
 	// nil factories mean the real MAM and download clients; tests inject fakes.
 	sched := scheduler.New(st, log, nil, nil)
 	sched.Start()
 
-	server := api.New(st, authManager, sched, log)
-
-	mux := http.NewServeMux()
-	server.Routes(mux)
-	mux.Handle("/", http.FileServer(http.Dir(staticDir)))
-
 	log.Info().Str("addr", addr).Str("data_dir", dataDir).Str("static_dir", staticDir).Msg("starting packrat")
 
 	httpServer := &http.Server{
 		Addr:              addr,
-		Handler:           mux,
+		Handler:           newHandler(st, sched, gate, staticDir, log),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 	if err := httpServer.ListenAndServe(); err != nil {
 		log.Fatal().Err(err).Msg("server stopped")
 	}
+}
+
+// newHandler is the whole HTTP surface: the API and the dashboard, behind the
+// sign-in gate. A nil gate (PACKRAT_AUTH_DISABLED) leaves it unprotected.
+func newHandler(st *store.Store, sched *scheduler.Scheduler, gate *authy.Gate, staticDir string, log zerolog.Logger) http.Handler {
+	mux := http.NewServeMux()
+	api.New(st, sched, log).Routes(mux)
+	mux.Handle("/", http.FileServer(http.Dir(staticDir)))
+	return gate.Wrap(mux)
 }
 
 // newLogger builds the process-wide zerolog.Logger using ConsoleWriter —

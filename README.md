@@ -33,8 +33,9 @@ services:
 docker compose up -d
 ```
 
-Open **http://localhost:8766**, create your admin account, point it at your
-download client, and choose what you want it to look for.
+Open **http://localhost:8766**, create your local account (or configure OIDC,
+see below), point it at your download client, and choose what you want it to
+look for.
 
 That's it. It'll check in every 30 minutes.
 
@@ -91,7 +92,10 @@ These are container-level only:
 | Variable | What it does | Default |
 | --- | --- | --- |
 | `PACKRAT_DATA_DIR` | Where settings are saved inside the container | `/app/data` |
-| `PACKRAT_AUTH_DISABLED` | Turn off the login screen | `false` |
+| `PACKRAT_AUTH_DISABLED` | Turn off the login entirely | `false` |
+| `PACKRAT_OIDC_ISSUER`, `_CLIENT_ID`, `_CLIENT_SECRET`, `_BASE_URL` | Sign in through an OpenID Connect provider (Authelia, Authentik, Keycloak, ...) instead of a local account. All four are required together. Register a confidential client with redirect URI `<BASE_URL>/auth/callback`, scopes `openid profile email`, `client_secret_basic`; PKCE is always used. Who may sign in is decided at the provider. | unset |
+| `PACKRAT_LOCAL_ENABLED` | Keep the local account next to OIDC as a break-glass login | off with OIDC |
+| `PACKRAT_AUTH_PUBLIC_PATHS` | Comma-separated extra paths that skip the login (`/healthz` always does) | none |
 | `LOG_LEVEL` | How chatty the logs are | `info` |
 
 Your settings file holds your MAM cookie and download client password. It's

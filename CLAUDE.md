@@ -10,7 +10,7 @@ matching configured filters and adding them to qBittorrent. Single binary +
 petite-vue frontend, served on `:8766` (hardcoded in `main.go`).
 
 Sibling project to `../automouse`; both share conventions (zerolog
-ConsoleWriter, first-launch admin auth, `PACKRAT_SETTING_<KEY>` env overrides
+ConsoleWriter, the authy sign-in gate, `PACKRAT_SETTING_<KEY>` env overrides
 with locked-field UI, scratch Docker image).
 
 ## Commands
@@ -40,19 +40,25 @@ no in-image compile) — both `make docker` and goreleaser rely on that.
 - **`internal/store`** — the single source of truth. One mutex-guarded
   `State` struct persisted as `dataDir/config.json` (0600, write-to-tmp +
   rename). Everything goes through `store.View(fn)` / `store.Update(fn)`;
-  there is no partial write path. Holds admin creds, auth HMAC key +
-  sessions, settings, totals, scheduler on/paused/next-run, and a history
+  there is no partial write path. Holds settings, totals, scheduler on/paused/next-run, and a history
   ring capped at `maxHistory` (300).
-- **`internal/auth`** — Sonarr/Radarr-style first-launch admin setup, bcrypt
-  password, opaque HMAC-signed session cookie. The HMAC key and session set
-  live in the store so restarts don't log the user out.
+- **Sign-in is `authy`** (`github.com/miista/authy`, same gate as reaparr and
+  bookshelf), not code in this repo. `PACKRAT_OIDC_*` hands sign-in to the
+  IdP; with none set it falls back to a local first-launch account.
+  `PACKRAT_AUTH_DISABLED=true` bypasses it (nil gate). Its state lives in
+  `/app/data/auth/`, next to `config.json`. `store.Admin` / `store.Auth` are
+  legacy fields kept only so an old `config.json` round-trips and a rollback
+  image still finds its account; nothing reads them. `newHandler` in
+  `main.go` puts the whole mux behind `gate.Wrap`.
 - **`internal/scheduler`** — owns the run loop. A 5s ticker checks whether
   `NextRunTime` is due; runs are serialized by `s.running`. `Pause()` both
   flips state *and* cancels the in-flight run's context so the add loop stops
   between torrents.
-- **`internal/api`** — `net/http` mux. Every route except `/healthz`,
-  `/api/setup`, `/api/login` is wrapped in `guarded`; state-changing routes
-  additionally get `csrfGuard` (Origin vs Host).
+- **`internal/api`** — `net/http` mux. Handlers don't check who is calling:
+  the authy gate wraps the mux (see below) and only `/healthz` is public.
+  State-changing routes additionally get `csrfGuard` (Origin vs Host). A new
+  route sits behind the gate automatically; `main_test.go` pins that every
+  API route answers 401 without a session.
 
 Plus `internal/mamclient` (MAM HTTP) and `internal/downloadclient` (a
 `Client` interface with one qBittorrent implementation).

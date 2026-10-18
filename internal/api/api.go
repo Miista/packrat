@@ -1,6 +1,6 @@
-// Package api implements the HTTP handlers for packrat: first-launch
-// admin setup, login/logout, settings (with env-override reporting), and
-// scheduler control.
+// Package api implements the HTTP handlers for packrat: settings (with
+// env-override reporting) and scheduler control. Sign-in is not handled
+// here: the authy gate wraps the whole mux in main.
 package api
 
 import (
@@ -13,70 +13,43 @@ import (
 
 	"github.com/rs/zerolog"
 
-	"github.com/miista/packrat/internal/auth"
 	"github.com/miista/packrat/internal/scheduler"
 	"github.com/miista/packrat/internal/settings"
 	"github.com/miista/packrat/internal/store"
 )
 
-// Server wires the store, auth manager, and scheduler into HTTP handlers.
+// Server wires the store and scheduler into HTTP handlers.
 type Server struct {
 	store     *store.Store
-	auth      *auth.Manager
 	scheduler *scheduler.Scheduler
 	log       zerolog.Logger
-	authOff   bool
 }
 
 // New builds a Server.
-func New(st *store.Store, am *auth.Manager, sc *scheduler.Scheduler, log zerolog.Logger) *Server {
+func New(st *store.Store, sc *scheduler.Scheduler, log zerolog.Logger) *Server {
 	return &Server{
 		store:     st,
-		auth:      am,
 		scheduler: sc,
 		log:       log.With().Str("component", "api").Logger(),
-		authOff:   settings.AuthDisabled(),
 	}
 }
 
-// Routes registers all handlers on mux.
+// Routes registers all handlers on mux. None of them check who is calling:
+// the authy gate in front of the mux has already decided, on every route
+// except /healthz.
 func (s *Server) Routes(mux *http.ServeMux) {
 	mux.HandleFunc("/healthz", s.handleHealthz)
-	mux.HandleFunc("/api/setup", s.handleSetup)
-	mux.HandleFunc("/api/login", s.handleLogin)
-	mux.HandleFunc("/api/logout", s.guarded(s.handleLogout))
-	mux.HandleFunc("/api/state", s.guarded(s.handleState))
-	mux.HandleFunc("/api/history", s.guarded(s.handleHistory))
-	mux.HandleFunc("/api/settings", s.guarded(s.handleSettings))
-	mux.HandleFunc("/api/start", s.guarded(s.csrfGuard(s.handleStart)))
-	mux.HandleFunc("/api/pause", s.guarded(s.csrfGuard(s.handlePause)))
-	mux.HandleFunc("/api/run", s.guarded(s.csrfGuard(s.handleRun)))
-	mux.HandleFunc("/api/dry-run", s.guarded(s.csrfGuard(s.handleDryRun)))
-}
-
-// guarded enforces that, once an admin account exists (and auth isn't
-// explicitly disabled), a request carries a valid session — on every
-// route, including read-only state.
-func (s *Server) guarded(next http.HandlerFunc) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		if s.authOff {
-			next(w, r)
-			return
-		}
-		if !s.auth.HasAdmin() {
-			writeJSON(w, http.StatusPreconditionRequired, map[string]string{"error": "Admin account setup required."})
-			return
-		}
-		if !s.auth.Authenticated(r) {
-			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "Login required."})
-			return
-		}
-		next(w, r)
-	}
+	mux.HandleFunc("/api/state", s.handleState)
+	mux.HandleFunc("/api/history", s.handleHistory)
+	mux.HandleFunc("/api/settings", s.handleSettings)
+	mux.HandleFunc("/api/start", s.csrfGuard(s.handleStart))
+	mux.HandleFunc("/api/pause", s.csrfGuard(s.handlePause))
+	mux.HandleFunc("/api/run", s.csrfGuard(s.handleRun))
+	mux.HandleFunc("/api/dry-run", s.csrfGuard(s.handleDryRun))
 }
 
 // csrfGuard rejects state-changing requests whose Origin header doesn't
-// match the request Host, as defense-in-depth alongside session auth.
+// match the request Host, as defense-in-depth alongside the sign-in gate.
 func (s *Server) csrfGuard(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		origin := r.Header.Get("Origin")
@@ -91,61 +64,6 @@ func (s *Server) csrfGuard(next http.HandlerFunc) http.HandlerFunc {
 }
 
 func (s *Server) handleHealthz(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
-}
-
-func (s *Server) handleSetup(w http.ResponseWriter, r *http.Request) {
-	switch r.Method {
-	case http.MethodGet:
-		writeJSON(w, http.StatusOK, map[string]bool{"admin_exists": s.auth.HasAdmin()})
-	case http.MethodPost:
-		if s.auth.HasAdmin() {
-			writeJSON(w, http.StatusConflict, map[string]string{"error": auth.ErrAdminExists.Error()})
-			return
-		}
-		var req struct{ Username, Password string }
-		if err := readJSON(r, &req); err != nil {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
-			return
-		}
-		if err := s.auth.CreateAdmin(req.Username, req.Password); err != nil {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
-			return
-		}
-		token, err := s.auth.Authenticate(req.Username, req.Password)
-		if err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
-			return
-		}
-		s.auth.SetSessionCookie(w, r, token)
-		writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
-	default:
-		w.WriteHeader(http.StatusMethodNotAllowed)
-	}
-}
-
-func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		w.WriteHeader(http.StatusMethodNotAllowed)
-		return
-	}
-	var req struct{ Username, Password string }
-	if err := readJSON(r, &req); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
-		return
-	}
-	token, err := s.auth.Authenticate(req.Username, req.Password)
-	if err != nil {
-		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "Invalid username or password."})
-		return
-	}
-	s.auth.SetSessionCookie(w, r, token)
-	s.scheduler.RefreshUnsat()
-	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
-}
-
-func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
-	s.auth.ClearSessionCookie(w, r)
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 

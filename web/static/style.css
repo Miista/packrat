@@ -39,6 +39,7 @@ body {
   font-size: 13px;
 }
 .link-btn:hover { color: var(--text); }
+a.link-btn { text-decoration: none; }
 
 main { padding: 24px; max-width: 900px; margin: 0 auto; }
 h1 { font-size: 20px; margin: 0 0 16px; }

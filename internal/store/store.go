@@ -173,12 +173,18 @@ type HistoryEntry struct {
 }
 
 // Admin holds the single admin account (Sonarr/Radarr first-launch pattern).
+//
+// Legacy: sign-in is owned by authy now and nothing reads this. The field
+// stays in State so an existing config.json round-trips untouched and a
+// rollback to an image with its own login still finds its account.
 type Admin struct {
 	Username     string `json:"username"`
 	PasswordHash string `json:"password_hash"`
 }
 
-// Auth holds session-auth state that must survive a process restart: the
+// Auth is legacy, like Admin: kept for round-tripping and rollback only.
+//
+// It held session-auth state that had to survive a process restart: the
 // HMAC key used to sign session tokens, and the set of currently valid
 // sessions (id -> expiry).
 type Auth struct {

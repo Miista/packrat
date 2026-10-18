@@ -1,14 +1,8 @@
 function App() {
   return {
-    view: 'loading', // 'loading' | 'setup' | 'login' | 'app'
+    view: 'loading', // 'loading' | 'error' | 'app'
     tab: 'dashboard',
-    loggedIn: false,
     runMenuOpen: false,
-
-    setupForm: { username: '', password: '' },
-    setupError: '',
-    loginForm: { username: '', password: '' },
-    loginError: '',
 
     state: {
       totals: { cumulative_torrents_added: 0, cumulative_runs: 0 },
@@ -53,23 +47,23 @@ function App() {
         if (!e.target.closest('.split-button')) this.runMenuOpen = false;
       });
 
-      const setupRes = await fetch('/api/setup');
-      const setupData = await setupRes.json();
-      if (!setupData.admin_exists) {
-        this.view = 'setup';
-        return;
-      }
       const ok = await this.tryLoadState();
-      this.view = ok ? 'app' : 'login';
+      this.view = ok ? 'app' : 'error';
       if (ok) this.startPolling();
     },
 
+    // Sign-in is the auth gate's: a page load without a session is redirected
+    // to the identity provider before this script ever runs, and an API call
+    // without one gets 401. So a 401 here means the session ended while the
+    // page was open — reloading sends the browser back through sign-in.
     async tryLoadState() {
       const res = await fetch('/api/state');
-      if (res.status === 401 || res.status === 412) return false;
+      if (res.status === 401) {
+        location.reload();
+        return false;
+      }
       if (!res.ok) return false;
       this.state = await res.json();
-      this.loggedIn = true;
       await this.loadSettings();
       await this.loadHistory(1);
       return true;
@@ -93,6 +87,10 @@ function App() {
       if (this.pollTimer) return;
       this.pollTimer = setInterval(async () => {
         const res = await fetch('/api/state');
+        if (res.status === 401) {
+          location.reload();
+          return;
+        }
         if (res.ok) this.state = await res.json();
         // Only auto-refresh history while sitting on the first page — a
         // completed run shows up there, but jumping the user back to page 1
@@ -100,49 +98,6 @@ function App() {
         // disruptive.
         if (this.runHistory.page === 1) await this.loadHistory(1);
       }, 5000);
-    },
-
-    async submitSetup() {
-      this.setupError = '';
-      const res = await fetch('/api/setup', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(this.setupForm),
-      });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        this.setupError = data.error || 'Setup failed.';
-        return;
-      }
-      const ok = await this.tryLoadState();
-      this.view = ok ? 'app' : 'login';
-      if (ok) this.startPolling();
-    },
-
-    async submitLogin() {
-      this.loginError = '';
-      const res = await fetch('/api/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(this.loginForm),
-      });
-      if (!res.ok) {
-        this.loginError = 'Invalid username or password.';
-        return;
-      }
-      const ok = await this.tryLoadState();
-      this.view = ok ? 'app' : 'login';
-      if (ok) this.startPolling();
-    },
-
-    async logout() {
-      await fetch('/api/logout', { method: 'POST' });
-      if (this.pollTimer) {
-        clearInterval(this.pollTimer);
-        this.pollTimer = null;
-      }
-      this.loggedIn = false;
-      this.view = 'login';
     },
 
     async startSchedule() {

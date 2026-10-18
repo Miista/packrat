@@ -99,16 +99,6 @@ func parseInt(v string, fallback int) int {
 	return n
 }
 
-// AuthDisabled reports whether PACKRAT_AUTH_DISABLED is set truthily.
-func AuthDisabled() bool {
-	v, ok := os.LookupEnv("PACKRAT_AUTH_DISABLED")
-	if !ok {
-		return false
-	}
-	b, err := strconv.ParseBool(strings.TrimSpace(v))
-	return err == nil && b
-}
-
 // MaskSecret returns a masked representation of a secret value, showing
 // only the last 4 characters, e.g. "••••••1234". Empty values are returned
 // empty.
